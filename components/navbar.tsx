@@ -1,0 +1,178 @@
+"use client"
+
+import React from "react"
+
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import {
+  NavigationMenu,
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
+  navigationMenuTriggerStyle,
+} from "@/components/ui/navigation-menu"
+import { cn } from "@/lib/utils"
+import { useState } from "react"
+import { Menu, X, User, LogIn, MessageCircle } from "lucide-react"
+import { ModeToggle } from "./mode-toggle"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+export default function Navbar() {
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+  return (
+    <header className="border-b sticky top-0 z-40 bg-background">
+      <div className="container flex items-center justify-between h-16 px-4 md:px-6">
+        <Link href="/" className="font-bold text-xl">
+          旅行规划
+        </Link>
+
+        {/* Desktop Navigation */}
+        <div className="hidden md:flex items-center gap-6">
+          <NavigationMenu>
+            <NavigationMenuList>
+              <NavigationMenuItem>
+                <Link href="/trip/create" legacyBehavior passHref>
+                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>创建行程</NavigationMenuLink>
+                </Link>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>探索</NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px]">
+                    <ListItem href="/recommendations" title="推荐景点">
+                      发现热门景点和小众地点
+                    </ListItem>
+                    <ListItem href="/recommendations/popular" title="热门行程">
+                      查看其他用户喜爱的行程
+                    </ListItem>
+                    <ListItem href="/recommendations/ai" title="AI 推荐">
+                      基于您的偏好获取个性化推荐
+                    </ListItem>
+                    <ListItem href="/recommendations/seasonal" title="季节性推荐">
+                      根据当前季节获取最佳旅行建议
+                    </ListItem>
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <Link href="/trips" legacyBehavior passHref>
+                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>我的行程</NavigationMenuLink>
+                </Link>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <Link href="/chat" legacyBehavior passHref>
+                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    AI 助手
+                  </NavigationMenuLink>
+                </Link>
+              </NavigationMenuItem>
+            </NavigationMenuList>
+          </NavigationMenu>
+
+          <div className="flex items-center gap-4">
+            <ModeToggle />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <User className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link href="/profile">个人设置</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/trips">我的行程</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/chat">AI 助手</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>退出登录</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button asChild>
+              <Link href="/login">
+                <LogIn className="h-4 w-4 mr-2" />
+                登录
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* Mobile Navigation */}
+        <div className="md:hidden flex items-center gap-4">
+          <ModeToggle />
+          <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+            {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </Button>
+        </div>
+      </div>
+
+      {/* Mobile Menu */}
+      {isMenuOpen && (
+        <div className="md:hidden border-t p-4 space-y-4 bg-background">
+          <Link href="/trip/create" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+            创建行程
+          </Link>
+          <Link href="/recommendations" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+            推荐景点
+          </Link>
+          <Link href="/trips" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+            我的行程
+          </Link>
+          <Link href="/chat" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+            AI 助手
+          </Link>
+          <div className="pt-4 border-t flex flex-col gap-2">
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/profile">
+                <User className="h-4 w-4 mr-2" />
+                个人中心
+              </Link>
+            </Button>
+            <Button asChild className="w-full">
+              <Link href="/login">
+                <LogIn className="h-4 w-4 mr-2" />
+                登录
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
+    </header>
+  )
+}
+
+const ListItem = React.forwardRef<React.ElementRef<"a">, React.ComponentPropsWithoutRef<"a">>(
+  ({ className, title, children, ...props }, ref) => {
+    return (
+      <li>
+        <NavigationMenuLink asChild>
+          <a
+            ref={ref}
+            className={cn(
+              "block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
+              className,
+            )}
+            {...props}
+          >
+            <div className="text-sm font-medium leading-none">{title}</div>
+            <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">{children}</p>
+          </a>
+        </NavigationMenuLink>
+      </li>
+    )
+  },
+)
+ListItem.displayName = "ListItem"
