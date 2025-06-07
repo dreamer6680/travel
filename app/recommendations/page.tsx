@@ -19,6 +19,7 @@ interface Attraction {
   type: string
   description: string
   imageUrl?: string
+  likes: number
 }
 
 export default function RecommendationsPage() {
@@ -288,9 +289,12 @@ function AttractionCard({
               {attraction.location}
             </CardDescription>
           </div>
-          <Button variant="ghost" size="icon" onClick={onToggleFavorite} className="shrink-0">
-            <Heart className={`h-4 w-4 ${isFavorite ? "fill-red-500 text-red-500" : ""}`} />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={onToggleFavorite} className="shrink-0">
+              <Heart className={`h-4 w-4 ${isFavorite ? "fill-red-500 text-red-500" : ""}`} />
+            </Button>
+            <span className="text-sm font-medium">{attraction.likes}</span>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

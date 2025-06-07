@@ -28,7 +28,7 @@ export default function CreateTripPage() {
     dateRange: {
       from: new Date(),
       to: new Date(new Date().setDate(new Date().getDate() + 7)),
-    },
+    } as { from: Date; to: Date },
     travelers: "2",
     travelStyle: "balanced",
     interests: "",
@@ -53,10 +53,15 @@ export default function CreateTripPage() {
 
   // 处理日期范围变化
   const handleDateRangeChange = (dateRange: { from: Date; to?: Date }) => {
-    setFormData({
-      ...formData,
-      dateRange,
-    })
+    if (dateRange.from && dateRange.to) {
+      setFormData({
+        ...formData,
+        dateRange: {
+          from: dateRange.from,
+          to: dateRange.to,
+        },
+      })
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,9 +87,10 @@ export default function CreateTripPage() {
         title: "行程创建成功",
         description: "正在为您跳转到行程详情页",
       })
-
+      console.log("response", response)
       // 跳转到行程结果页
-      router.push(`/trip/result?id=${response.id}`)
+      localStorage.setItem("trip", JSON.stringify(response))
+      router.push(`/trip/result`)
     } catch (error) {
       console.error("创建行程失败:", error)
       toast({
@@ -124,7 +130,14 @@ export default function CreateTripPage() {
                 <Label>旅行日期</Label>
                 <DatePickerWithRange
                   date={formData.dateRange}
-                  setDate={(range) => handleDateRangeChange(range || { from: new Date() })}
+                  setDate={(range) => {
+                    if (range) {
+                      handleDateRangeChange(range as { from: Date; to: Date })
+                    } else {
+                      const today = new Date()
+                      handleDateRangeChange({ from: today, to: today } as { from: Date; to: Date })
+                    }
+                  }}
                 />
               </div>
 

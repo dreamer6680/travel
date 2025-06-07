@@ -71,7 +71,7 @@ export default function TripsPage() {
     async function fetchTrips() {
       try {
         setIsLoading(true)
-        const data = await tripAPI.getUserTrips()
+        const data = await tripAPI.getUserTrips("user1")
         setTrips(data)
       } catch (error) {
         console.error("获取行程失败:", error)
@@ -376,7 +376,7 @@ function TripGrid({ trips, onDeleteTrip }: { trips: Trip[]; onDeleteTrip: (tripI
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem asChild>
-                    <Link href={`/trip/result?id=${trip.id}`}>
+                    <Link href={`/trip/datail?id=${trip.id}`}>
                       <Eye className="h-4 w-4 mr-2" />
                       查看详情
                     </Link>
@@ -450,7 +450,7 @@ function TripGrid({ trips, onDeleteTrip }: { trips: Trip[]; onDeleteTrip: (tripI
               </div>
 
               <Button className="w-full" variant="outline" asChild>
-                <Link href={`/trip/result?id=${trip.id}`}>查看详情</Link>
+                <Link href={`/trip/datail?id=${trip.id}`}>查看详情</Link>
               </Button>
             </div>
           </CardContent>

@@ -12,6 +12,7 @@ import { ArrowLeft, Save, Eye, Upload, X, Plus, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
+import { blogAPI } from "@/lib/api"
 
 export default function CreateBlogPage() {
   const router = useRouter()
@@ -43,8 +44,8 @@ export default function CreateBlogPage() {
 
     try {
       setIsLoading(true)
-      // 模拟API调用
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      const response = await blogAPI.createBlog(formData)
+      console.log("response", response)
 
       toast({
         title: status === "published" ? "发布成功" : "保存成功",

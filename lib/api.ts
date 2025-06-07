@@ -68,8 +68,8 @@ export const tripAPI = {
     return fetchAPI(`/trips/${tripId}`)
   },
 
-  getUserTrips: () => {
-    return fetchAPI("/trips/user")
+  getUserTrips: (userId: string) => {
+    return fetchAPI(`/trips/user?userId=${userId}`)
   },
 
   updateTrip: (tripId: string, tripData: any) => {
@@ -124,5 +124,22 @@ export const dataAPI = {
 
   getAttraction: (attractionId: string) => {
     return fetchAPI(`/data/attractions/${attractionId}`)
+  },
+}
+
+export const blogAPI = {
+  getBlogs: () => {
+    return fetchAPI(`/blogs`)
+  },
+
+  getBlog: (blogId: string) => {
+    return fetchAPI(`/blogs/${blogId}`)
+  },
+
+  createBlog: (blogData: any) => {
+    return fetchAPI(`/blogs`, {
+      method: "POST",
+      body: JSON.stringify(blogData),
+    })
   },
 }

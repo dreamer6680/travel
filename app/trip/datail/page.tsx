@@ -53,6 +53,7 @@ interface Trip {
 
 export default function TripResultPage() {
   const searchParams = useSearchParams()
+  const tripId = searchParams.get("id")
   const { toast } = useToast()
 
   const [trip, setTrip] = useState<Trip | null>(null)
@@ -62,10 +63,15 @@ export default function TripResultPage() {
 
   useEffect(() => {
     async function fetchTripData() {
+      if (!tripId) {
+        setError("未找到行程ID")
+        setIsLoading(false)
+        return
+      }
 
       try {
         setIsLoading(true)
-        const data = JSON.parse(localStorage.getItem("trip") || "{}")
+        const data = await tripAPI.getTrip(tripId)
         setTrip(data)
       } catch (err) {
         console.error("获取行程数据失败:", err)
@@ -76,7 +82,7 @@ export default function TripResultPage() {
     }
 
     fetchTripData()
-  }, [])
+  }, [tripId])
 
   const toggleSave = () => {
     setIsSaved(!isSaved)

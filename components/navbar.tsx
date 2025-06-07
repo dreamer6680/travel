@@ -40,32 +40,18 @@ export default function Navbar() {
           <NavigationMenu>
             <NavigationMenuList>
               <NavigationMenuItem>
-                <Link href="/trip/create" legacyBehavior passHref>
-                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>创建行程</NavigationMenuLink>
+                <Link href="/recommendations" legacyBehavior passHref>
+                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>探索景点</NavigationMenuLink>
                 </Link>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <NavigationMenuTrigger>探索</NavigationMenuTrigger>
-                <NavigationMenuContent>
-                  <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px]">
-                    <ListItem href="/recommendations" title="推荐景点">
-                      发现热门景点和小众地点
-                    </ListItem>
-                    <ListItem href="/recommendations/popular" title="热门行程">
-                      查看其他用户喜爱的行程
-                    </ListItem>
-                    <ListItem href="/recommendations/ai" title="AI 推荐">
-                      基于您的偏好获取个性化推荐
-                    </ListItem>
-                    <ListItem href="/recommendations/seasonal" title="季节性推荐">
-                      根据当前季节获取最佳旅行建议
-                    </ListItem>
-                  </ul>
-                </NavigationMenuContent>
+                <Link href="/blogs" legacyBehavior passHref>
+                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>游记分享</NavigationMenuLink>
+                </Link>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <Link href="/trips" legacyBehavior passHref>
-                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>我的行程</NavigationMenuLink>
+                <Link href="/trip/create" legacyBehavior passHref>
+                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>行程规划</NavigationMenuLink>
                 </Link>
               </NavigationMenuItem>
               <NavigationMenuItem>
@@ -74,11 +60,6 @@ export default function Navbar() {
                     <MessageCircle className="h-4 w-4 mr-2" />
                     AI 助手
                   </NavigationMenuLink>
-                </Link>
-              </NavigationMenuItem>
-              <NavigationMenuItem>
-                <Link href="/blogs" legacyBehavior passHref>
-                  <NavigationMenuLink className={navigationMenuTriggerStyle()}>游记分享</NavigationMenuLink>
                 </Link>
               </NavigationMenuItem>
             </NavigationMenuList>

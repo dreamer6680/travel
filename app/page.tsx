@@ -1,10 +1,14 @@
+"use client"
+
 import type React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { MapPin, Calendar, Compass, Star, MessageCircle, Sparkles } from "lucide-react"
 
 export default function Home() {
+  const router = useRouter()
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Hero Section */}
@@ -52,7 +56,9 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex-shrink-0">
-                <Button asChild size="lg">
+                <Button asChild size="lg" onClick={() => {
+                  router.push("/chat")
+                }}>
                   <Link href="/chat">
                     <MessageCircle className="h-5 w-5 mr-2" />
                     开始对话

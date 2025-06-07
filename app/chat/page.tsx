@@ -1,80 +1,127 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { useRef, useEffect } from "react"
-import { useChat } from "ai/react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Send, Bot, User, Trash2, Download, Share2, Loader2, Sparkles, Code, MapPin, Plane } from "lucide-react"
-import { MarkdownRenderer } from "@/components/markdown-renderer"
-import { useToast } from "@/components/ui/use-toast"
+import React, { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { MapPin, Code, Plane, Send, Bot, User, Loader2, Sparkles, Download, Share2, Trash2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function ChatPage() {
-  const { toast } = useToast()
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const { toast } = useToast();
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error, reload, stop } = useChat({
-    api: "/api/chat",
-    onError: (error) => {
-      toast({
-        title: "发送失败",
-        description: error.message,
-        variant: "destructive",
-      })
-    },
-  })
+  const [messages, setMessages] = useState<{ role: string; content: string }[]>(
+    []
+  );
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
   // 自动滚动到底部
   useEffect(() => {
     if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector("[data-radix-scroll-area-viewport]")
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight
+      const viewport = scrollAreaRef.current.querySelector(
+        "[data-radix-scroll-area-viewport]"
+      );
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
       }
     }
-  }, [messages])
+  }, [messages, isTyping]);
 
-  // 清空聊天记录
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isTyping) return;
+
+    const newMessage = { role: "user", content: input.trim() };
+    setMessages((prev) => [...prev, newMessage]);
+    setInput("");
+    setIsTyping(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          dialogText: [...messages, newMessage],
+        }),
+      });
+
+      if (!response.body) throw new Error("响应体为空");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let buffer = "";
+      let assistantMessage = "";
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+      
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+      
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+      
+          for (const line of lines) {
+            if (!line.trim()) continue;
+      
+            try {
+              const parsed = JSON.parse(line);
+              const chunk = parsed.message?.content || "";
+              assistantMessage += chunk;
+      
+              setMessages((prev) => {
+                const msgs = [...prev];
+                if (
+                  msgs.length === 0 ||
+                  msgs[msgs.length - 1].role !== "assistant"
+                ) {
+                  msgs.push({ role: "assistant", content: assistantMessage });
+                } else {
+                  // 这里覆盖，而不是 += chunk，避免重复
+                  msgs[msgs.length - 1].content = assistantMessage;
+                }
+                return msgs;
+              });
+            } catch (err) {
+              // JSON 不完整，跳过等待下一块
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      setError(err);
+      toast({
+        title: "发送失败",
+        description: err.message || "未知错误",
+        variant: "destructive",
+      });
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  // 清空聊天
   const clearChat = () => {
-    window.location.reload()
-  }
-
-  // 导出聊天记录
-  const exportChat = () => {
-    const chatContent = messages.map((m) => `**${m.role === "user" ? "用户" : "AI助手"}**: ${m.content}`).join("\n\n")
-
-    const blob = new Blob([chatContent], { type: "text/markdown" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `chat-${new Date().toISOString().split("T")[0]}.md`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  // 处理预设问题点击
-  const handlePresetClick = (questionText: string) => {
-    if (isLoading) return
-
-    // 创建一个模拟的事件对象
-    const syntheticEvent = {
-      preventDefault: () => {},
-      target: { value: questionText },
-    } as React.FormEvent<HTMLFormElement>
-
-    // 设置输入值
-    handleInputChange({ target: { value: questionText } } as React.ChangeEvent<HTMLInputElement>)
-
-    // 延迟提交以确保状态更新
-    setTimeout(() => {
-      handleSubmit(syntheticEvent)
-    }, 100)
-  }
+    setMessages([]);
+    setInput("");
+  };
 
   // 预设问题
   const presetQuestions = [
@@ -98,13 +145,26 @@ export default function ChatPage() {
       text: "用React创建一个旅行日程表组件",
       category: "代码开发",
     },
-  ]
+  ];
+
+  // 导出聊天记录为 markdown 文件
+  const exportChat = () => {
+    const content = messages
+      .map((m) => `**${m.role === "user" ? "用户" : "AI助手"}:** ${m.content}`)
+      .join("\n\n");
+    const blob = new Blob([content], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="container py-8">
-      <div className="max-w-7xl mx-auto">
-        {/* 页面头部 */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+      <div className="max-w-4xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Sparkles className="h-8 w-8 text-primary" />
@@ -128,11 +188,10 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* 主要内容区域 */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* 左侧边栏 - 预设问题 */}
+          {/* 侧边栏 - 预设问题 */}
           <div className="lg:col-span-1 order-2 lg:order-1">
-            <Card className="sticky top-4">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-lg">快速开始</CardTitle>
               </CardHeader>
@@ -141,9 +200,11 @@ export default function ChatPage() {
                   <Button
                     key={index}
                     variant="ghost"
-                    className="w-full justify-start h-auto p-3 text-left"
-                    onClick={() => handlePresetClick(question.text)}
-                    disabled={isLoading}
+                    className="w-full justify-start h-auto p-3 text-left whitespace-normal break-words"
+                    onClick={() => {
+                      setInput(question.text);  // 只设置输入框内容，不提交
+                    }}
+                    disabled={isTyping}
                   >
                     <div className="flex flex-col items-start gap-2">
                       <div className="flex items-center gap-2">
@@ -160,119 +221,130 @@ export default function ChatPage() {
             </Card>
           </div>
 
-          {/* 右侧主聊天区域 */}
-          <div className="lg:col-span-3 order-1 lg:order-2">
-            <Card className="h-[700px] flex flex-col">
-              <CardHeader className="flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-5 w-5 text-primary" />
-                    <span className="font-medium">AI 助手</span>
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <span className="text-sm text-muted-foreground">在线</span>
-                    </div>
-                  </div>
-                  <Badge variant="secondary">{messages.length} 条消息</Badge>
+        <div className="lg:col-span-3 order-1 lg:order-2">
+        <Card className="h-[600px] flex flex-col">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-primary" />
+                <span className="font-medium">AI 助手</span>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-sm text-muted-foreground">在线</span>
                 </div>
-              </CardHeader>
-
-              <Separator />
-
-              {/* 消息列表 */}
-              <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-                <div className="space-y-6">
-                  {messages.length === 0 && (
-                    <div className="text-center py-12">
-                      <Bot className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="text-lg font-medium mb-2">开始对话</h3>
-                      <p className="text-muted-foreground mb-4">我可以帮您规划旅行、编写代码、回答问题</p>
-                      <p className="text-sm text-muted-foreground">选择左侧的快速问题或直接输入您的问题</p>
-                    </div>
-                  )}
-
-                  {messages.map((message, index) => (
-                    <div
-                      key={message.id || index}
-                      className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      {message.role === "assistant" && (
-                        <Avatar className="h-8 w-8 flex-shrink-0">
-                          <AvatarFallback>
-                            <Bot className="h-4 w-4" />
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-
-                      <div
-                        className={`max-w-[80%] ${
-                          message.role === "user"
-                            ? "bg-primary text-primary-foreground rounded-lg px-4 py-2"
-                            : "bg-muted rounded-lg px-4 py-3"
-                        }`}
-                      >
-                        {message.role === "user" ? (
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        ) : (
-                          <MarkdownRenderer content={message.content} />
-                        )}
-                      </div>
-
-                      {message.role === "user" && (
-                        <Avatar className="h-8 w-8 flex-shrink-0">
-                          <AvatarFallback>
-                            <User className="h-4 w-4" />
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* 正在输入指示器 */}
-                  {isLoading && (
-                    <div className="flex gap-3 justify-start">
-                      <Avatar className="h-8 w-8 flex-shrink-0">
-                        <AvatarFallback>
-                          <Bot className="h-4 w-4" />
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="bg-muted rounded-lg px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span className="text-sm text-muted-foreground">AI 正在思考...</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-
-              <Separator />
-
-              {/* 输入区域 */}
-              <div className="p-4 flex-shrink-0">
-                <form onSubmit={handleSubmit} className="flex gap-2">
-                  <Input
-                    value={input}
-                    onChange={handleInputChange}
-                    placeholder="输入您的问题..."
-                    disabled={isLoading}
-                    className="flex-1"
-                    autoFocus
-                  />
-                  <Button type="submit" disabled={isLoading || !input.trim()}>
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </Button>
-                </form>
-
-                {error && <p className="text-sm text-red-500 mt-2">发送失败: {error.message}</p>}
-
-                <p className="text-xs text-muted-foreground mt-2">支持 Markdown 格式，代码块会自动高亮显示</p>
               </div>
-            </Card>
+              <Badge variant="secondary">{messages.length} 条消息</Badge>
+            </div>
+          </CardHeader>
+
+          <Separator />
+
+          <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
+            <div className="space-y-6">
+              {messages.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Bot className="h-12 w-12 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium mb-2">开始对话</h3>
+                  <p>我可以帮您规划旅行、编写代码、回答问题</p>
+                  <p className="text-sm mt-2">
+                    请选择左侧预设问题或直接输入您的问题
+                  </p>
+                </div>
+              )}
+
+              {messages.map((message, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-3 ${
+                    message.role === "user" ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  {message.role === "assistant" && (
+                    <Avatar className="h-8 w-8 flex-shrink-0">
+                      {/* <AvatarImage src="/ai-avatar.png" /> */}
+                      <AvatarFallback>
+                        <Bot className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+
+                  <div
+                    className={`max-w-[80%] whitespace-pre-wrap ${
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground rounded-lg px-4 py-2"
+                        : "bg-muted rounded-lg px-4 py-3"
+                    }`}
+                  >
+                    {message.role === "user" ? (
+                      <p>{message.content}</p>
+                    ) : (
+                      <MarkdownRenderer content={message.content} />
+                    )}
+                  </div>
+
+                  {message.role === "user" && (
+                    <Avatar className="h-8 w-8 flex-shrink-0">
+                      {/* <AvatarImage src="/user-avatar.png" /> */}
+                      <AvatarFallback>
+                        <User className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+                </div>
+              ))}
+
+              {isTyping && (
+                <div className="flex gap-3 justify-start">
+                  <Avatar className="h-8 w-8 flex-shrink-0">
+                    <AvatarImage src="/ai-avatar.png" />
+                    <AvatarFallback>
+                      <Bot className="h-4 w-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">
+                      AI 正在思考...
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+
+          <Separator />
+
+          <div className="p-4 flex-shrink-0">
+            <form onSubmit={handleSubmit} className="flex gap-2">
+              <Input
+                value={input}
+                onChange={handleInputChange}
+                placeholder="输入您的问题..."
+                disabled={isTyping}
+                className="flex-1"
+                autoFocus
+              />
+              <Button type="submit" disabled={isTyping || !input.trim()}>
+                {isTyping ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </form>
+            {error && (
+              <p className="text-sm text-red-500 mt-2">
+                发送失败: {error.message}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">
+              支持 Markdown 格式，代码块会自动高亮显示
+            </p>
           </div>
+          </Card>
         </div>
       </div>
+      </div>
     </div>
-  )
+  );
 }
