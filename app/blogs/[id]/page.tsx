@@ -11,6 +11,7 @@ import { Heart, MessageCircle, Share2, Calendar, MapPin, ArrowLeft, Send, Loader
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
+import { blogAPI } from "@/lib/api"
 
 interface Comment {
   id: string
@@ -57,119 +58,7 @@ export default function BlogDetailPage() {
     try {
       setIsLoading(true)
       // 模拟API调用
-      const mockBlog: Blog = {
-        id: 1,
-        userId: "user1",
-        title: "东京5日游：传统与现代的完美融合",
-        content: `# 东京之旅
-
-这次东京之行真的让我印象深刻！从传统的浅草寺到现代的晴空塔，东京完美地融合了传统与现代。
-
-## 第一天：浅草寺与晴空塔
-
-早上我们首先来到了浅草寺，这里是东京最古老的寺庙。仲见世通的小吃和纪念品让人目不暇接，特别推荐人形烧和雷门饼干。
-
-![浅草寺](/placeholder.svg?height=400&width=600)
-
-下午登上了晴空塔，634米的高度让整个东京尽收眼底。夜景更是美得令人窒息！
-
-![晴空塔夜景](/placeholder.svg?height=400&width=600)
-
-## 第二天：银座购物与美食
-
-银座是购物的天堂，从奢侈品牌到日本本土品牌，应有尽有。中午在银座的一家老字号寿司店用餐，师傅的手艺真的是炉火纯青。
-
-## 第三天：原宿与涩谷
-
-原宿的年轻文化让人眼前一亮，各种奇装异服的年轻人在这里展示着自己的个性。涩谷的十字路口更是壮观，成千上万的人同时过马路，场面震撼。
-
-## 美食体验
-
-东京的美食真的是太棒了！从浅草的传统寿司到银座的高级料理，每一餐都是享受。特别推荐：
-
-- **筑地市场的海鲜丼**：新鲜到爆炸的海鲜，价格也很合理
-- **一兰拉面**：虽然是连锁店，但味道确实不错
-- **银座的寿司**：虽然价格不菲，但绝对物有所值
-- **原宿的可丽饼**：年轻人的最爱，口味丰富
-
-![美食拼图](/placeholder.svg?height=400&width=600)
-
-## 购物天堂
-
-银座、涩谷、原宿...每个区域都有不同的购物体验：
-
-- **银座**：奢侈品和高端商品的聚集地
-- **涩谷**：年轻时尚的代表，109大厦是必去之地
-- **原宿**：个性化商品和二次元文化的天堂
-- **秋叶原**：电子产品和动漫周边的圣地
-
-## 交通体验
-
-东京的交通系统真的很发达，地铁四通八达。建议购买一日券或者三日券，会比较划算。不过要注意的是，早晚高峰期真的很挤，要做好心理准备。
-
-## 文化体验
-
-除了现代化的一面，东京也保留着很多传统文化：
-
-- **浅草寺**：感受传统日本的宗教文化
-- **明治神宫**：在都市中的一片净土
-- **皇居**：虽然不能进入，但外围的景色也很美
-- **上野公园**：樱花季节的绝佳去处
-
-## 总结
-
-总的来说，这次东京之行超出了我的期待。这座城市既有现代化的繁华，又保留着传统的韵味。无论是美食、购物还是文化体验，都让人流连忘返。
-
-已经开始计划下次的京都之旅了！如果你也在计划去日本旅行，强烈推荐东京作为第一站。
-
-**小贴士：**
-- 提前下载Google翻译和换乘案内APP
-- 准备一些现金，很多小店不接受信用卡
-- 学会基本的日语问候语，日本人会很开心
-- 尊重当地文化，特别是在寺庙和神社`,
-        images: [
-          "/placeholder.svg?height=400&width=600",
-          "/placeholder.svg?height=400&width=600",
-          "/placeholder.svg?height=400&width=600",
-        ],
-        destination: "东京, 日本",
-        tags: ["东京", "美食", "购物", "传统文化", "现代都市"],
-        likes: 128,
-        likedBy: ["user2", "user3", "user4"],
-        comments: [
-          {
-            id: "comment1",
-            userId: "user2",
-            userName: "李四",
-            userAvatar: "/placeholder.svg?height=40&width=40",
-            content: "写得太好了！我也想去东京了，请问有什么推荐的住宿吗？",
-            createdAt: "2025-01-05T10:30:00Z",
-          },
-          {
-            id: "comment2",
-            userId: "user3",
-            userName: "王五",
-            userAvatar: "/placeholder.svg?height=40&width=40",
-            content: "照片拍得真美！晴空塔的夜景确实很震撼",
-            createdAt: "2025-01-05T14:20:00Z",
-          },
-          {
-            id: "comment3",
-            userId: "user4",
-            userName: "赵六",
-            userAvatar: "/placeholder.svg?height=40&width=40",
-            content: "筑地市场的海鲜丼我也吃过，确实很新鲜！下次去东京一定要再去一次",
-            createdAt: "2025-01-05T16:45:00Z",
-          },
-        ],
-        author: {
-          name: "张三",
-          avatar: "/placeholder.svg?height=40&width=40",
-        },
-        status: "published",
-        createdAt: "2025-01-05T08:00:00Z",
-        updatedAt: "2025-01-05T08:00:00Z",
-      }
+      const mockBlog = await blogAPI.getBlog(params.id as string)
 
       setBlog(mockBlog)
     } catch (error) {
@@ -377,11 +266,11 @@ export default function BlogDetailPage() {
             {/* 作者信息 */}
             <div className="flex items-center gap-3 mb-4">
               <Avatar className="h-10 w-10">
-                <AvatarImage src={blog.author.avatar || "/placeholder.svg"} />
-                <AvatarFallback>{blog.author.name.charAt(0)}</AvatarFallback>
+                <AvatarImage src={blog.author?.avatar || "/placeholder.svg"} />
+                <AvatarFallback>{blog.author?.name.charAt(0)}</AvatarFallback>
               </Avatar>
               <div>
-                <p className="font-medium">{blog.author.name}</p>
+                <p className="font-medium">{blog.author?.name}</p>
                 <p className="text-sm text-muted-foreground">旅行爱好者</p>
               </div>
             </div>

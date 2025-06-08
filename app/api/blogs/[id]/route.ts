@@ -6,8 +6,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const client = await clientPromise
     const db = client.db("trip")
     const collection = db.collection("TravelBlogs")
+    const id = Number(await params.id)
 
-    const blog = await collection.findOne({ id: params.id })
+    const blog = await collection.findOne({ id: id })
 
     if (!blog) {
       return NextResponse.json({ error: "Blog not found" }, { status: 404 })
@@ -25,10 +26,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const updateData = await request.json()
     const client = await clientPromise
     const db = client.db("trip")
+    const id = Number(await params.id)
     const collection = db.collection("TravelBlogs")
 
     const result = await collection.updateOne(
-      { id: params.id },
+      { id: id },
       {
         $set: {
           ...updateData,
@@ -53,8 +55,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     const client = await clientPromise
     const db = client.db("trip")
     const collection = db.collection("TravelBlogs")
+    const id = Number(await params.id)
 
-    const result = await collection.deleteOne({ id: params.id })
+    const result = await collection.deleteOne({ id: id })
 
     if (result.deletedCount === 0) {
       return NextResponse.json({ error: "Blog not found" }, { status: 404 })
