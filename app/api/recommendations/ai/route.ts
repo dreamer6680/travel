@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import clientPromise from "@/lib/db";
-
+import { main } from "@/lib/scrape"
 // 处理 GET 请求
 export async function GET(request: Request) {
   try {

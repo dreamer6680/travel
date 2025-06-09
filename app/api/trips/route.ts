@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import clientPromise from "@/lib/db"
 
 
 export async function POST(request: Request) {
@@ -140,4 +141,17 @@ export async function GET(request: Request) {
   ]
 
   return NextResponse.json(trips)
+}
+
+export async function PUT(request: Request) {
+  const tripData = await request.json()
+  const client = await clientPromise
+  const db = client.db("trip")
+  const collection = db.collection("Trips")
+  const result = await collection.updateOne({ id: tripData.id }, { $set: tripData })
+  if (result.modifiedCount === 0) {
+    return NextResponse.json({ message: "更新行程失败" }, { status: 500 })
+  }
+  console.log("tripData", tripData)
+  return NextResponse.json(tripData, { status: 200 })
 }

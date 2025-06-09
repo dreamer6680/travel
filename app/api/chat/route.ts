@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "deepseek-r1",
+      model: "gemma:2b",
       messages: [
         {
           role: "system",

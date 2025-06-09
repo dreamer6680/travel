@@ -79,6 +79,13 @@ export const tripAPI = {
     })
   },
 
+  confirmTrip: (tripData: any) => {
+    return fetchAPI(`/trips`, {
+      method: "PUT",
+      body: JSON.stringify(tripData),
+    })
+  },
+
   deleteTrip: (tripId: string) => {
     return fetchAPI(`/trips/${tripId}`, {
       method: "DELETE",

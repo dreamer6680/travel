@@ -11,6 +11,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import { useRouter } from "next/navigation"
 
 // 定义行程类型
 interface Trip {
@@ -59,7 +60,7 @@ export default function TripResultPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSaved, setIsSaved] = useState(false)
-
+  const router = useRouter()
   useEffect(() => {
     async function fetchTripData() {
 
@@ -77,6 +78,23 @@ export default function TripResultPage() {
 
     fetchTripData()
   }, [])
+
+  const handleConfirmTrip = () => {
+    tripAPI.confirmTrip(trip).then((res) => {
+      if (res.status === 200) {
+        toast({
+          title: "行程确认成功",
+          description: "行程已确认，请等待审核",
+        })
+        router.push("/trip")
+      } else {
+        toast({
+          title: "行程确认失败",
+          description: "请稍后再试",
+        })
+      }
+    })
+  }
 
   const toggleSave = () => {
     setIsSaved(!isSaved)
@@ -261,7 +279,7 @@ export default function TripResultPage() {
               </CardContent>
               <CardFooter className="flex justify-between">
                 <Button variant="outline">修改行程</Button>
-                <Button>确认行程</Button>
+                <Button onClick={handleConfirmTrip}>确认行程</Button>
               </CardFooter>
             </Card>
           </TabsContent>

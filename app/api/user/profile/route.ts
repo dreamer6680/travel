@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server"
-import { initDatabase } from "@/lib/dbinit"
 
 export async function GET(request: Request) {
-  await initDatabase()
   // 在实际应用中，这里会从数据库获取用户信息
   const userProfile = {
     id: "user1",
