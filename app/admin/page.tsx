@@ -244,7 +244,7 @@ export default function AdminPage() {
 
   if (isLoading) {
     return (
-      <div className="container py-8 flex justify-center items-center min-h-[60vh]">
+      <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-lg">加载中...</p>
@@ -254,7 +254,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center gap-2 mb-8">
           <Shield className="h-8 w-8 text-primary" />

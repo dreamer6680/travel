@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: travel-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password123}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-trip}
+    volumes:
+      # 数据持久化
+      - mongodb_data:/data/db
+    networks:
+      - travel-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # 数据库初始化服务（仅在首次启动时运行）
+  db-init:
+    image: node:20-alpine
+    container_name: travel-db-init
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      # 在 Docker 网络中使用服务名连接
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGO_ROOT_PASSWORD:-password123}@mongodb:27017/?authSource=admin
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-trip}
+      NODE_ENV: development
+    command: sh -c "npm install && npm run db:init"
+    networks:
+      - travel-network
+    profiles:
+      - init  # 使用 profile 控制，默认不启动
+
+volumes:
+  mongodb_data:
+    driver: local
+  node_modules:
+    driver: local
+
+networks:
+  travel-network:
+    driver: bridge
+

@@ -10,7 +10,7 @@ import { MapPin, Calendar, Compass, Star, MessageCircle, Sparkles } from "lucide
 export default function Home() {
   const router = useRouter()
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="w-full mx-auto px-4 py-8">
       {/* Hero Section */}
       <section className="py-12 md:py-24 flex flex-col items-center text-center">
         <h1 className="text-4xl md:text-6xl font-bold mb-6">探索世界，定制您的完美旅程</h1>

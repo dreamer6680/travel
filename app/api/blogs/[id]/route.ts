@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server"
-import clientPromise from "@/lib/db"
+import { BlogService } from "@/server/controllers"
+
+const blogService = new BlogService()
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    const client = await clientPromise
-    const db = client.db("trip")
-    const collection = db.collection("TravelBlogs")
     const id = Number(await params.id)
-
-    const blog = await collection.findOne({ id: id })
+    const blog = await blogService.getBlogById(id)
 
     if (!blog) {
       return NextResponse.json({ error: "Blog not found" }, { status: 404 })
@@ -24,20 +22,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const updateData = await request.json()
-    const client = await clientPromise
-    const db = client.db("trip")
     const id = Number(await params.id)
-    const collection = db.collection("TravelBlogs")
-
-    const result = await collection.updateOne(
-      { id: id },
-      {
-        $set: {
-          ...updateData,
-          updatedAt: new Date().toISOString(),
-        },
-      },
-    )
+    const result = await blogService.updateBlog(id, updateData)
 
     if (result.matchedCount === 0) {
       return NextResponse.json({ error: "Blog not found" }, { status: 404 })
@@ -52,12 +38,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const client = await clientPromise
-    const db = client.db("trip")
-    const collection = db.collection("TravelBlogs")
     const id = Number(await params.id)
-
-    const result = await collection.deleteOne({ id: id })
+    const result = await blogService.deleteBlog(id)
 
     if (result.deletedCount === 0) {
       return NextResponse.json({ error: "Blog not found" }, { status: 404 })

@@ -207,7 +207,7 @@ export default function BlogDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="container py-8 flex justify-center items-center min-h-[60vh]">
+      <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-lg">加载中...</p>
@@ -218,7 +218,7 @@ export default function BlogDetailPage() {
 
   if (!blog) {
     return (
-      <div className="container py-8">
+      <div className="w-full py-8">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-2xl font-bold mb-4">游记不存在</h1>
           <p className="text-muted-foreground mb-6">抱歉，您访问的游记不存在或已被删除</p>
@@ -234,7 +234,7 @@ export default function BlogDetailPage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-4xl mx-auto">
         {/* 返回按钮 */}
         <Button variant="ghost" className="mb-6" asChild>

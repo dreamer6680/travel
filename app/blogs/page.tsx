@@ -134,7 +134,7 @@ export default function BlogsPage() {
 
   if (isLoading) {
     return (
-      <div className="container py-8 flex justify-center items-center min-h-[60vh]">
+      <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-lg">加载中...</p>
@@ -144,7 +144,7 @@ export default function BlogsPage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-6xl mx-auto">
         {/* 页面头部 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">

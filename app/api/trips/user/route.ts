@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server"
-import clientPromise from "@/lib/db"
+import { TripService } from "@/server/controllers"
 
+const tripService = new TripService()
 
 export async function GET(request: Request) {
-  // 在实际应用中，这里会从数据库获取用户的所有行程
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId");
+  try {
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get("userId")
 
-  const client = await clientPromise;
-  const db = client.db("trip");
-  const collection = db.collection("Trips");
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required" }, { status: 400 })
+    }
 
-  const results = await collection.find({ userId: userId }).toArray();
-
-  return NextResponse.json(results)
+    const results = await tripService.getTripsByUserId(userId)
+    return NextResponse.json(results)
+  } catch (error) {
+    console.error("获取用户行程失败:", error)
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+  }
 }

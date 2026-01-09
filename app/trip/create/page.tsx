@@ -103,7 +103,7 @@ export default function CreateTripPage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold mb-6">创建您的旅行计划</h1>
         <p className="text-muted-foreground mb-8">填写以下信息，我们将为您生成个性化的旅行计划</p>

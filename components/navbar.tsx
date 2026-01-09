@@ -30,7 +30,7 @@ export default function Navbar() {
 
   return (
     <header className="border-b sticky top-0 z-40 bg-background">
-      <div className="container flex items-center justify-between h-16 px-4 md:px-6">
+      <div className="w-full flex items-center justify-between h-16 px-4 md:px-6">
         <Link href="/" className="font-bold text-xl">
           旅行规划
         </Link>

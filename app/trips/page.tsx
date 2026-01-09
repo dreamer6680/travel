@@ -174,7 +174,7 @@ export default function TripsPage() {
 
   if (isLoading) {
     return (
-      <div className="container py-8 flex justify-center items-center min-h-[60vh]">
+      <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-lg">正在加载您的行程...</p>
@@ -184,7 +184,7 @@ export default function TripsPage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-6xl mx-auto">
         {/* 页面头部 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -376,7 +376,7 @@ function TripGrid({ trips, onDeleteTrip }: { trips: Trip[]; onDeleteTrip: (tripI
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem asChild>
-                    <Link href={`/trip/datail?id=${trip.id}`}>
+                    <Link href={`/trip/detail?id=${trip.id}`}>
                       <Eye className="h-4 w-4 mr-2" />
                       查看详情
                     </Link>

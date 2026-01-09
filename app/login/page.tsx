@@ -34,7 +34,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="container flex items-center justify-center min-h-[calc(100vh-8rem)] py-8">
+    <div className="w-full flex items-center justify-center min-h-[calc(100vh-8rem)] py-8">
       <Tabs defaultValue="login" className="w-full max-w-md">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="login">登录</TabsTrigger>

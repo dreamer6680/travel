@@ -71,21 +71,21 @@ export default function ChatPage() {
       while (!done) {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
-      
+
         if (value) {
           buffer += decoder.decode(value, { stream: true });
-      
+
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
-      
+
           for (const line of lines) {
             if (!line.trim()) continue;
-      
+
             try {
               const parsed = JSON.parse(line);
               const chunk = parsed.message?.content || "";
               assistantMessage += chunk;
-      
+
               setMessages((prev) => {
                 const msgs = [...prev];
                 if (
@@ -162,9 +162,9 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-4xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Sparkles className="h-8 w-8 text-primary" />
@@ -221,129 +221,127 @@ export default function ChatPage() {
             </Card>
           </div>
 
-        <div className="lg:col-span-3 order-1 lg:order-2">
-        <Card className="h-[600px] flex flex-col">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bot className="h-5 w-5 text-primary" />
-                <span className="font-medium">AI 助手</span>
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-sm text-muted-foreground">在线</span>
+          <div className="lg:col-span-3 order-1 lg:order-2">
+            <Card className="h-[600px] flex flex-col">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-5 w-5 text-primary" />
+                    <span className="font-medium">AI 助手</span>
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="text-sm text-muted-foreground">在线</span>
+                    </div>
+                  </div>
+                  <Badge variant="secondary">{messages.length} 条消息</Badge>
                 </div>
-              </div>
-              <Badge variant="secondary">{messages.length} 条消息</Badge>
-            </div>
-          </CardHeader>
+              </CardHeader>
 
-          <Separator />
+              <Separator />
 
-          <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-            <div className="space-y-6">
-              {messages.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Bot className="h-12 w-12 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium mb-2">开始对话</h3>
-                  <p>我可以帮您规划旅行、编写代码、回答问题</p>
-                  <p className="text-sm mt-2">
-                    请选择左侧预设问题或直接输入您的问题
-                  </p>
-                </div>
-              )}
-
-              {messages.map((message, i) => (
-                <div
-                  key={i}
-                  className={`flex gap-3 ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  {message.role === "assistant" && (
-                    <Avatar className="h-8 w-8 flex-shrink-0">
-                      {/* <AvatarImage src="/ai-avatar.png" /> */}
-                      <AvatarFallback>
-                        <Bot className="h-4 w-4" />
-                      </AvatarFallback>
-                    </Avatar>
+              <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
+                <div className="space-y-6">
+                  {messages.length === 0 && (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Bot className="h-12 w-12 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium mb-2">开始对话</h3>
+                      <p>我可以帮您规划旅行、编写代码、回答问题</p>
+                      <p className="text-sm mt-2">
+                        请选择左侧预设问题或直接输入您的问题
+                      </p>
+                    </div>
                   )}
 
-                  <div
-                    className={`max-w-[80%] whitespace-pre-wrap ${
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-lg px-4 py-2"
-                        : "bg-muted rounded-lg px-4 py-3"
-                    }`}
-                  >
-                    {message.role === "user" ? (
-                      <p>{message.content}</p>
+                  {messages.map((message, i) => (
+                    <div
+                      key={i}
+                      className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"
+                        }`}
+                    >
+                      {message.role === "assistant" && (
+                        <Avatar className="h-8 w-8 flex-shrink-0">
+                          {/* <AvatarImage src="/ai-avatar.png" /> */}
+                          <AvatarFallback>
+                            <Bot className="h-4 w-4" />
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
+
+                      <div
+                        className={`max-w-[80%] whitespace-pre-wrap ${message.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-lg px-4 py-2"
+                            : "bg-muted rounded-lg px-4 py-3"
+                          }`}
+                      >
+                        {message.role === "user" ? (
+                          <p>{message.content}</p>
+                        ) : (
+                          <MarkdownRenderer content={message.content} />
+                        )}
+                      </div>
+
+                      {message.role === "user" && (
+                        <Avatar className="h-8 w-8 flex-shrink-0">
+                          {/* <AvatarImage src="/user-avatar.png" /> */}
+                          <AvatarFallback>
+                            <User className="h-4 w-4" />
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
+                    </div>
+                  ))}
+
+                  {isTyping && (
+                    <div className="flex gap-3 justify-start">
+                      <Avatar className="h-8 w-8 flex-shrink-0">
+                        <AvatarImage src="/ai-avatar.png" />
+                        <AvatarFallback>
+                          <Bot className="h-4 w-4" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm text-muted-foreground">
+                          AI 正在思考...
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+
+              <Separator />
+
+              <div className="p-4 flex-shrink-0">
+                <form onSubmit={handleSubmit} className="flex gap-2">
+                  <Input
+                    value={input}
+                    onChange={handleInputChange}
+                    placeholder="输入您的问题..."
+                    disabled={isTyping}
+                    className="flex-1"
+                    autoFocus
+                  />
+                  <Button type="submit" disabled={isTyping || !input.trim()}>
+                    {isTyping ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <MarkdownRenderer content={message.content} />
+                      <Send className="h-4 w-4" />
                     )}
-                  </div>
-
-                  {message.role === "user" && (
-                    <Avatar className="h-8 w-8 flex-shrink-0">
-                      {/* <AvatarImage src="/user-avatar.png" /> */}
-                      <AvatarFallback>
-                        <User className="h-4 w-4" />
-                      </AvatarFallback>
-                    </Avatar>
-                  )}
-                </div>
-              ))}
-
-              {isTyping && (
-                <div className="flex gap-3 justify-start">
-                  <Avatar className="h-8 w-8 flex-shrink-0">
-                    <AvatarImage src="/ai-avatar.png" />
-                    <AvatarFallback>
-                      <Bot className="h-4 w-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm text-muted-foreground">
-                      AI 正在思考...
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-
-          <Separator />
-
-          <div className="p-4 flex-shrink-0">
-            <form onSubmit={handleSubmit} className="flex gap-2">
-              <Input
-                value={input}
-                onChange={handleInputChange}
-                placeholder="输入您的问题..."
-                disabled={isTyping}
-                className="flex-1"
-                autoFocus
-              />
-              <Button type="submit" disabled={isTyping || !input.trim()}>
-                {isTyping ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
+                  </Button>
+                </form>
+                {error && (
+                  <p className="text-sm text-red-500 mt-2">
+                    发送失败: {error.message}
+                  </p>
                 )}
-              </Button>
-            </form>
-            {error && (
-              <p className="text-sm text-red-500 mt-2">
-                发送失败: {error.message}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground mt-2">
-              支持 Markdown 格式，代码块会自动高亮显示
-            </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  支持 Markdown 格式，代码块会自动高亮显示
+                </p>
+              </div>
+            </Card>
           </div>
-          </Card>
         </div>
-      </div>
       </div>
     </div>
   );

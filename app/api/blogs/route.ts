@@ -1,38 +1,32 @@
 import { NextResponse } from "next/server"
-import clientPromise from "@/lib/db"
+import { BlogService } from "@/server/controllers"
+
+const blogService = new BlogService()
 
 export async function GET(request: Request) {
   try {
-    const client = await clientPromise
-    const db = client.db("trip")
-    const collection = db.collection("TravelBlogs")
-
-    const blogs = await collection.find({ status: "published" }).toArray()
+    const blogs = await blogService.getPublishedBlogs()
     return NextResponse.json(blogs)
   } catch (error) {
     console.error("获取游记失败:", error)
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    const errorStack = error instanceof Error ? error.stack : undefined
+    console.error("错误详情:", { errorMessage, errorStack })
+    return NextResponse.json(
+      { 
+        error: "Internal Server Error",
+        message: errorMessage,
+        ...(process.env.NODE_ENV === "development" && { stack: errorStack })
+      },
+      { status: 500 }
+    )
   }
 }
 
 export async function POST(request: Request) {
   try {
     const blogData = await request.json()
-    const client = await clientPromise
-    const db = client.db("trip")
-    const collection = db.collection("TravelBlogs")
-
-    const newBlog = {
-      ...blogData,
-      id: Math.random().toString(36).substring(2, 15),
-      likes: 0,
-      likedBy: [],
-      comments: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-
-    await collection.insertOne(newBlog)
+    const newBlog = await blogService.createBlog(blogData)
     return NextResponse.json(newBlog, { status: 201 })
   } catch (error) {
     console.error("创建游记失败:", error)

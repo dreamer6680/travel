@@ -4,7 +4,7 @@ import { Github } from "lucide-react"
 export default function Footer() {
   return (
     <footer className="border-t py-6 md:py-8">
-      <div className="container flex flex-col md:flex-row justify-between items-center gap-4 px-4 md:px-6">
+      <div className="w-full flex flex-col md:flex-row justify-between items-center gap-4 px-4 md:px-6">
         <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-center">
           <Link href="/" className="font-semibold">
             旅行规划

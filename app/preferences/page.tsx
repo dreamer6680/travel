@@ -28,7 +28,7 @@ export default function PreferencesPage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold mb-6">设置您的旅行偏好</h1>
         <p className="text-muted-foreground mb-8">请告诉我们您的旅行偏好，以便我们为您提供更加个性化的旅行建议</p>

@@ -114,7 +114,7 @@ export default function ProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="container py-8 flex justify-center items-center min-h-[60vh]">
+      <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-lg">正在加载用户资料...</p>
@@ -125,7 +125,7 @@ export default function ProfilePage() {
 
   if (!profile) {
     return (
-      <div className="container py-8">
+      <div className="w-full py-8">
         <Card>
           <CardHeader>
             <CardTitle className="text-red-500">加载失败</CardTitle>
@@ -139,7 +139,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="container py-8">
+    <div className="w-full py-8">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold mb-8">个人设置</h1>
 
