@@ -1,9 +1,11 @@
 /**
  * 行程地点增强服务
  * 从行程活动中提取地点信息并获取坐标
+ * 优先从景点数据库中匹配，降级使用地理编码 API
  */
 
 import { extractLocationsFromActivities, geocodeAddresses, LocationInfo } from "./location-service"
+import { query } from "../db-pg"
 
 export interface ActivityWithLocation {
   time: string
@@ -28,6 +30,104 @@ export interface TripWithLocations {
   destination: string
   days: DayWithLocations[]
   allLocations: LocationInfo[]
+}
+
+/**
+ * 从景点数据库中匹配活动标题，获取坐标
+ */
+async function getCoordinatesFromAttractions(
+  activities: Array<{ title: string; location?: string }>,
+  destination: string
+): Promise<Map<string, LocationInfo>> {
+  const locationInfoMap = new Map<string, LocationInfo>()
+  
+  try {
+    // 为每个活动尝试匹配景点
+    for (const activity of activities) {
+      // 优先使用 location 字段，如果没有则从 title 提取
+      const searchText = activity.location || activity.title
+      
+      // 提取关键词（去除城市前缀和常见动词）
+      let keywords = searchText
+        .replace(new RegExp(`^${destination}`, 'g'), '')
+        .replace(/^(前往|参观|游览|品尝|体验|探索|抵达|入住|观光|深度游|全景游览|赏景|晚餐|美食体验|购物|休闲|返程|及|和)/g, '')
+        .trim()
+      
+      // 提取主要景点名称（去除描述性词汇）
+      const mainKeywords = keywords
+        .split(/[，,、及和]/)[0] // 取第一个关键词
+        .replace(/(步行街|CBD|观光|深度游|全景游览|赏景|晚餐|美食体验|购物|休闲|返程|机场|酒店|博物馆|公园|长城|大学|美食街)/g, '')
+        .trim()
+      
+      if (mainKeywords.length < 2) {
+        continue
+      }
+
+      try {
+        // 尝试多个匹配策略
+        const searchPatterns = [
+          mainKeywords, // 主要关键词
+          keywords.split(/[，,、]/)[0], // 第一个完整短语
+        ].filter(Boolean)
+          .filter(pattern => pattern.length >= 2)
+
+        for (const searchPattern of searchPatterns) {
+          const result = await query(`
+            SELECT 
+              name,
+              location,
+              latitude,
+              longitude,
+              coordinate_type
+            FROM attraction_vectors
+            WHERE 
+              (name ILIKE $1 OR description ILIKE $1)
+              AND (latitude IS NOT NULL AND longitude IS NOT NULL)
+            ORDER BY 
+              CASE 
+                WHEN name ILIKE $1 THEN 1
+                WHEN description ILIKE $1 THEN 2
+                ELSE 3
+              END
+            LIMIT 1
+          `, [`%${searchPattern}%`])
+
+          if (result.rows.length > 0) {
+            const attraction = result.rows[0]
+            
+            if (attraction.latitude && attraction.longitude) {
+              // 转换坐标系（如果需要）
+              let lat = Number(attraction.latitude)
+              let lng = Number(attraction.longitude)
+              
+              // 如果是 BD09 坐标系，可能需要转换（这里先直接使用）
+              // TODO: 如果需要，可以添加坐标系转换逻辑
+              
+              console.log(`✅ 从数据库匹配到坐标: ${activity.title} -> ${attraction.name} (${lat}, ${lng})`)
+              
+              locationInfoMap.set(activity.title, {
+                name: attraction.name || activity.title,
+                address: attraction.location || '',
+                coordinate: { lat, lng },
+                formattedAddress: attraction.location || '',
+              })
+              break // 找到匹配就停止
+            }
+          }
+        }
+        
+        if (!locationInfoMap.has(activity.title)) {
+          console.log(`⚠️  未从数据库匹配到坐标: ${activity.title} (搜索词: ${mainKeywords})`)
+        }
+      } catch (error) {
+        console.warn(`从数据库获取坐标失败 (${activity.title}):`, error)
+      }
+    }
+  } catch (error) {
+    console.warn("从景点数据库匹配坐标失败:", error)
+  }
+
+  return locationInfoMap
 }
 
 /**
@@ -57,14 +157,26 @@ export async function enhanceTripWithLocations(
     // 2. 收集所有唯一的地点名称
     const uniqueLocations = Array.from(new Set(Array.from(locationMap.values()).filter(Boolean))) as string[]
 
-    // 3. 批量地理编码
-    const locationInfos = await geocodeAddresses(uniqueLocations, trip.destination)
+    // 3. 优先从景点数据库获取坐标（使用完整的活动信息）
+    const dbLocationMap = await getCoordinatesFromAttractions(allActivities, trip.destination)
+    
+    // 4. 对于没有从数据库获取到坐标的地点，使用地理编码 API
+    const locationsNeedingGeocode = uniqueLocations.filter(loc => !dbLocationMap.has(loc))
+    const geocodedLocations = await geocodeAddresses(locationsNeedingGeocode, trip.destination)
 
-    // 4. 创建地点名称到 LocationInfo 的映射
+    // 5. 合并所有地点信息
     const locationInfoMap = new Map<string, LocationInfo>()
+    
+    // 添加从数据库获取的坐标
+    dbLocationMap.forEach((info, key) => {
+      locationInfoMap.set(key, info)
+    })
+    
+    // 添加地理编码获取的坐标
     uniqueLocations.forEach((location, index) => {
-      if (locationInfos[index]) {
-        locationInfoMap.set(location, locationInfos[index]!)
+      const locationIndex = locationsNeedingGeocode.indexOf(location)
+      if (locationIndex >= 0 && geocodedLocations[locationIndex]) {
+        locationInfoMap.set(location, geocodedLocations[locationIndex]!)
       }
     })
 
@@ -74,11 +186,29 @@ export async function enhanceTripWithLocations(
       activities: day.activities.map((activity) => {
         const activityKey = `${activity.title}-${activity.type}`
         const locationName = locationMap.get(activityKey) || activity.location
-        const locationInfo = locationName ? locationInfoMap.get(locationName) : undefined
+        
+        // 优先从数据库匹配的坐标（通过活动标题）
+        let locationInfo = dbLocationMap.get(activity.title)
+        
+        // 如果没有，尝试通过 location 字段匹配
+        if (!locationInfo && locationName) {
+          // 先尝试从数据库匹配 locationName
+          for (const [key, info] of dbLocationMap.entries()) {
+            if (locationName.includes(key) || key.includes(locationName)) {
+              locationInfo = info
+              break
+            }
+          }
+          
+          // 如果还是没有，使用地理编码的结果
+          if (!locationInfo) {
+            locationInfo = locationInfoMap.get(locationName)
+          }
+        }
 
         return {
           ...activity,
-          location: locationName || undefined,
+          location: locationName || activity.location || undefined,
           coordinate: locationInfo?.coordinate,
           locationInfo: locationInfo,
         }

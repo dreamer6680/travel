@@ -96,20 +96,29 @@ export class TripGenerationWorkflowService {
             }
             
             // 优先使用数据库中的坐标字段
-            if (attr.latitude !== null && attr.longitude !== null) {
+            if (attr.latitude != null && attr.longitude != null) {
               attraction.coordinate = {
-                latitude: attr.latitude,
-                longitude: attr.longitude,
+                latitude: Number(attr.latitude),
+                longitude: Number(attr.longitude),
                 coordinateType: attr.coordinate_type || 'BD09',
               }
+              console.log(`✅ 使用数据库坐标: ${attr.name} (${attr.latitude}, ${attr.longitude})`)
             }
             // 降级：从 metadata 中获取坐标
             else if (attr.metadata?.coordinate) {
-              attraction.coordinate = {
-                latitude: attr.metadata.coordinate.latitude,
-                longitude: attr.metadata.coordinate.longitude,
-                coordinateType: attr.metadata.coordinate.coordinateType || 'BD09',
+              const coord = attr.metadata.coordinate
+              if (coord.latitude != null && coord.longitude != null) {
+                attraction.coordinate = {
+                  latitude: Number(coord.latitude),
+                  longitude: Number(coord.longitude),
+                  coordinateType: coord.coordinateType || 'BD09',
+                }
+                console.log(`✅ 使用 metadata 坐标: ${attr.name} (${coord.latitude}, ${coord.longitude})`)
               }
+            }
+            
+            if (!attraction.coordinate) {
+              console.warn(`⚠️  景点 ${attr.name} 没有坐标信息`)
             }
             
             return attraction

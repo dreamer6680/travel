@@ -343,6 +343,9 @@ export async function searchSimilarAttractions(
       description: row.description,
       image_url: row.image_url,
       likes: row.likes,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      coordinate_type: row.coordinate_type,
       embedding: row.embedding as any, // pgvector 返回的格式
       metadata: row.metadata,
       similarity: row.similarity,

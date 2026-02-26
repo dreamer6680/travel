@@ -171,6 +171,8 @@ export default function TripResultPage() {
     )
   }
 
+  console.log("tripWithLocations", tripWithLocations)
+
   return (
     <div className="w-full py-8">
       <div className="max-w-4xl mx-auto">
