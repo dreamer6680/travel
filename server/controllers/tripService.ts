@@ -69,13 +69,76 @@ export class TripService {
 
       if (useNewWorkflow) {
         console.log("使用新的向量工作流生成行程")
-        const result = await workflowService.generateTrip(tripData)
-        return result.trip
+        try {
+          const result = await workflowService.generateTrip(tripData)
+          return result.trip
+        } catch (error: any) {
+          // 检查是否是 OpenAI API key 问题
+          const isAPIKeyError = 
+            error?.status === 401 ||
+            error?.code === 'invalid_api_key' ||
+            error?.code === 'authentication_error' ||
+            error?.message?.includes('401') ||
+            error?.message?.includes('Incorrect API key') ||
+            error?.message?.includes('Invalid API key') ||
+            error?.message?.includes('authentication')
+          
+          // 检查是否是 OpenAI 配额错误
+          const isQuotaError = 
+            error?.status === 429 || 
+            error?.code === 'insufficient_quota' ||
+            error?.message?.includes('429') ||
+            error?.message?.includes('quota')
+          
+          const isOpenAIError = isAPIKeyError || isQuotaError
+          
+          if (isOpenAIError) {
+            if (isAPIKeyError) {
+              console.warn("⚠️  OpenAI API Key 无效或未设置，降级到 Ollama")
+            } else {
+              console.warn("⚠️  OpenAI API 配额超限或错误，降级到 Ollama")
+            }
+            return this.createTripWithAIFallback(tripData)
+          }
+          // 其他错误也降级
+          throw error
+        }
       } else {
         // 降级方案：使用快速生成（不进行路线规划）
         console.log("使用快速生成模式")
-        const result = await workflowService.generateTripQuick(tripData)
-        return result.trip
+        try {
+          const result = await workflowService.generateTripQuick(tripData)
+          return result.trip
+        } catch (error: any) {
+          // 检查是否是 OpenAI API key 问题
+          const isAPIKeyError = 
+            error?.status === 401 ||
+            error?.code === 'invalid_api_key' ||
+            error?.code === 'authentication_error' ||
+            error?.message?.includes('401') ||
+            error?.message?.includes('Incorrect API key') ||
+            error?.message?.includes('Invalid API key') ||
+            error?.message?.includes('authentication')
+          
+          // 检查是否是 OpenAI 配额错误
+          const isQuotaError = 
+            error?.status === 429 || 
+            error?.code === 'insufficient_quota' ||
+            error?.message?.includes('429') ||
+            error?.message?.includes('quota')
+          
+          const isOpenAIError = isAPIKeyError || isQuotaError
+          
+          if (isOpenAIError) {
+            if (isAPIKeyError) {
+              console.warn("⚠️  OpenAI API Key 无效或未设置，降级到 Ollama")
+            } else {
+              console.warn("⚠️  OpenAI API 配额超限或错误，降级到 Ollama")
+            }
+            return this.createTripWithAIFallback(tripData)
+          }
+          throw error
+        }
       }
     } catch (error) {
       console.error("新工作流失败，使用降级方案:", error)
@@ -170,29 +233,53 @@ export class TripService {
 }
     `
 
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      body: JSON.stringify({
-        model: "gemma3",
-        prompt: messages,
-        stream: false,
-      }),
-    })
+    try {
+      const response = await fetch("http://localhost:11434/api/generate", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "gemma3",
+          prompt: messages,
+          stream: false,
+        }),
+      })
 
-    const data = await response.json()
-    const pureJson = data.response
-      .replace(/^```json\s*/, "") // 去掉开头的 ```json
-      .replace(/\s*```$/, "") // 去掉结尾的 ```
+      if (!response.ok) {
+        throw new Error(`Ollama API 返回错误: ${response.status} ${response.statusText}`)
+      }
 
-    const parsed = JSON.parse(pureJson)
-    const trip = {
-      ...parsed,
-      id: Math.random().toString(36).substring(2, 15),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      const data = await response.json()
+      
+      if (!data.response) {
+        throw new Error("Ollama 返回的数据格式不正确")
+      }
+
+      const pureJson = data.response
+        .replace(/^```json\s*/i, "") // 去掉开头的 ```json
+        .replace(/\s*```$/i, "") // 去掉结尾的 ```
+        .trim()
+
+      const parsed = JSON.parse(pureJson)
+      const trip = {
+        ...parsed,
+        id: Math.random().toString(36).substring(2, 15),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+
+      return trip
+    } catch (error: any) {
+      // 检查是否是连接错误
+      if (error?.code === 'ECONNREFUSED' || error?.message?.includes('ECONNREFUSED')) {
+        throw new Error(
+          "无法连接到 Ollama 服务。请确保 Ollama 正在运行：\n" +
+          "1. 安装 Ollama: https://ollama.ai/\n" +
+          "2. 启动 Ollama 服务\n" +
+          "3. 下载模型: ollama pull gemma3\n" +
+          "或者配置有效的 OPENAI_API_KEY 以使用 OpenAI 服务"
+        )
+      }
+      throw error
     }
-
-    return trip
   }
 
   /**

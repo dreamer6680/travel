@@ -22,7 +22,7 @@ function getPool(): Pool {
       connectionString: POSTGRES_URL,
       max: 20, // 最大连接数
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 10000, // 增加到 10 秒，给 Docker 容器更多启动时间
     })
 
     // 错误处理
@@ -73,10 +73,44 @@ export async function getClient(): Promise<PoolClient> {
 }
 
 /**
+ * 等待数据库连接就绪
+ * @param maxRetries 最大重试次数
+ * @param retryDelay 重试延迟（毫秒）
+ */
+export async function waitForDatabase(
+  maxRetries: number = 30,
+  retryDelay: number = 1000
+): Promise<void> {
+  const pool = getPool()
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const result = await pool.query("SELECT 1")
+      if (result.rows.length > 0) {
+        console.log("✅ PostgreSQL 数据库连接成功")
+        return
+      }
+    } catch (error) {
+      if (i < maxRetries - 1) {
+        console.log(`⏳ 等待 PostgreSQL 数据库就绪... (${i + 1}/${maxRetries})`)
+        await new Promise((resolve) => setTimeout(resolve, retryDelay))
+      } else {
+        throw new Error(
+          `PostgreSQL 数据库连接失败，已重试 ${maxRetries} 次: ${error instanceof Error ? error.message : "Unknown error"}`
+        )
+      }
+    }
+  }
+}
+
+/**
  * 初始化 pgvector 扩展
  */
 export async function initPgVector(): Promise<void> {
   try {
+    // 先等待数据库就绪
+    await waitForDatabase()
+    
     await query("CREATE EXTENSION IF NOT EXISTS vector")
     console.log("✅ pgvector 扩展已启用")
   } catch (error) {

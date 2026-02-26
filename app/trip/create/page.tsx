@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { DatePickerWithRange } from "@/components/date-range-picker"
 import { Slider } from "@/components/ui/slider"
-import { useRouter } from "next/router"
+import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"

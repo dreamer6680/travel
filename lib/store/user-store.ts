@@ -11,9 +11,21 @@ export interface User {
   role?: string
 }
 
+export interface UserPreferences {
+  budget: number
+  travelStyle: string
+  favoriteDestinations: string[]
+  interests: string[]
+  seasons: string[]
+  accommodationType: string
+  transportationPreference: string
+}
+
 interface UserStore {
   // 用户信息
   user: User | null
+  // 用户偏好
+  preferences: UserPreferences | null
   // 登录状态
   isAuthenticated: boolean
   // 是否正在加载
@@ -21,17 +33,21 @@ interface UserStore {
 
   // Actions
   setUser: (user: User | null) => void
+  setPreferences: (preferences: UserPreferences | null) => void
   setToken: (token: string) => void
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   checkAuth: () => Promise<void>
   updateUser: (userData: Partial<User>) => void
+  fetchPreferences: () => Promise<void>
+  updatePreferences: (preferences: UserPreferences) => Promise<void>
 }
 
 export const useUserStore = create<UserStore>()(
   persist(
     (set, get) => ({
       user: null,
+      preferences: null,
       isAuthenticated: false,
       isLoading: false,
 
@@ -105,9 +121,16 @@ export const useUserStore = create<UserStore>()(
         // 尝试获取用户信息
         set({ isLoading: true })
         try {
-          const user = await userAPI.getProfile()
+          const profile = await userAPI.getProfile()
           set({
-            user,
+            user: {
+              id: profile.id,
+              name: profile.name,
+              email: profile.email,
+              avatar: profile.avatar,
+              role: profile.role,
+            },
+            preferences: profile.preferences || null,
             isAuthenticated: true,
             isLoading: false,
           })
@@ -116,6 +139,7 @@ export const useUserStore = create<UserStore>()(
           removeToken()
           set({
             user: null,
+            preferences: null,
             isAuthenticated: false,
             isLoading: false,
           })
@@ -133,11 +157,39 @@ export const useUserStore = create<UserStore>()(
           })
         }
       },
+
+      setPreferences: (preferences) => {
+        set({ preferences })
+      },
+
+      fetchPreferences: async () => {
+        try {
+          const profile = await userAPI.getProfile()
+          if (profile?.preferences) {
+            set({ preferences: profile.preferences })
+          }
+        } catch (error) {
+          console.error("获取用户偏好失败:", error)
+          // 不抛出错误，允许使用默认值
+        }
+      },
+
+      updatePreferences: async (preferences: UserPreferences) => {
+        try {
+          await userAPI.updatePreferences(preferences)
+          // 更新成功后，更新 store
+          set({ preferences })
+        } catch (error) {
+          console.error("更新用户偏好失败:", error)
+          throw error
+        }
+      },
     }),
     {
       name: "user-store",
       partialize: (state) => ({
         user: state.user,
+        preferences: state.preferences,
         isAuthenticated: state.isAuthenticated,
       }),
     }

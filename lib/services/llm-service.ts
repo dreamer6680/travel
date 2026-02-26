@@ -1,14 +1,28 @@
 // @ts-ignore - OpenAI 类型定义
 import OpenAI from "openai"
 
-// 初始化 OpenAI 客户端
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
 // 默认模型
 const DEFAULT_MODEL = "gpt-4o-mini"
 const DEFAULT_TEMPERATURE = 0.7
+
+// 延迟初始化 OpenAI 客户端
+let openaiInstance: OpenAI | null = null
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiInstance) {
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      throw new Error(
+        "OPENAI_API_KEY 环境变量未设置。请在 .env.local 文件中添加：\n" +
+        "OPENAI_API_KEY=your-api-key-here"
+      )
+    }
+    openaiInstance = new OpenAI({
+      apiKey,
+    })
+  }
+  return openaiInstance
+}
 
 export interface EnhancedUserInput {
   destination: string
@@ -41,11 +55,8 @@ export async function enhanceUserInput(
     interests?: string
   }
 ): Promise<EnhancedUserInput> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY 环境变量未设置")
-  }
-
   try {
+    const openai = getOpenAIClient()
     const prompt = `你是一位专业的旅行规划助手。请分析用户的旅行需求，完善和结构化以下信息：
 
 用户原始输入：
@@ -132,8 +143,32 @@ export async function enhanceUserInput(
     }
 
     return enhanced
-  } catch (error) {
+  } catch (error: any) {
     console.error("完善用户输入失败:", error)
+    
+    // 检查是否是 API key 问题或配额错误
+    const isAPIKeyError = 
+      error?.status === 401 ||
+      error?.code === 'invalid_api_key' ||
+      error?.code === 'authentication_error' ||
+      error?.message?.includes('401') ||
+      error?.message?.includes('Incorrect API key') ||
+      error?.message?.includes('Invalid API key') ||
+      error?.message?.includes('authentication') ||
+      !process.env.OPENAI_API_KEY
+    
+    const isQuotaError = 
+      error?.status === 429 || 
+      error?.code === 'insufficient_quota' ||
+      error?.message?.includes('429') ||
+      error?.message?.includes('quota')
+    
+    if (isAPIKeyError) {
+      console.warn("⚠️  OpenAI API Key 无效或未设置，使用原始输入")
+    } else if (isQuotaError) {
+      console.warn("⚠️  OpenAI API 配额超限，使用原始输入")
+    }
+    
     // 降级方案：返回原始输入的结构化版本
     return {
       destination: rawInput.destination || "",
@@ -169,11 +204,8 @@ export async function generateTripItinerary(
     durations: number[]
   }
 ): Promise<any> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY 环境变量未设置")
-  }
-
   try {
+    const openai = getOpenAIClient()
     const attractionsList = matchedAttractions
       .map(
         (attr, idx) =>
@@ -290,8 +322,46 @@ ${attractionsList}${routeInfo}
       updatedAt: new Date().toISOString(),
       matchedAttractionsCount: matchedAttractions.length,
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("生成行程失败:", error)
+    
+    // 检查是否是 API key 问题
+    const isAPIKeyError = 
+      error?.status === 401 ||
+      error?.code === 'invalid_api_key' ||
+      error?.code === 'authentication_error' ||
+      error?.message?.includes('401') ||
+      error?.message?.includes('Incorrect API key') ||
+      error?.message?.includes('Invalid API key') ||
+      error?.message?.includes('authentication') ||
+      !process.env.OPENAI_API_KEY
+    
+    // 检查是否是配额错误
+    const isQuotaError = 
+      error?.status === 429 || 
+      error?.code === 'insufficient_quota' ||
+      error?.message?.includes('429') ||
+      error?.message?.includes('quota')
+    
+    if (isAPIKeyError) {
+      throw new Error(
+        `OpenAI API Key 无效: ${error?.message || "请检查您的 API Key 配置"}\n` +
+        `建议：\n` +
+        `1. 检查 .env.local 中的 OPENAI_API_KEY 是否正确\n` +
+        `2. 或使用 Ollama 本地模型（设置 USE_VECTOR_WORKFLOW=false）`
+      )
+    }
+    
+    if (isQuotaError) {
+      throw new Error(
+        `OpenAI API 配额超限: ${error?.message || "请检查您的账户配额和账单设置"}\n` +
+        `建议：\n` +
+        `1. 检查 OpenAI 账户余额\n` +
+        `2. 升级账户计划\n` +
+        `3. 或使用 Ollama 本地模型（设置 USE_VECTOR_WORKFLOW=false）`
+      )
+    }
+    
     throw error
   }
 }

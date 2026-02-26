@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator"
 import { User, Camera, MapPin, Calendar, Globe, Bell, Shield, Loader2, Save } from "lucide-react"
 import { userAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import { useUserStore, type UserPreferences } from "@/lib/store/user-store"
 
 // 定义用户类型
 interface UserProfile {
@@ -62,31 +63,54 @@ interface UserProfile {
 
 export default function ProfilePage() {
   const { toast } = useToast()
+  const { user, preferences, isLoading: storeLoading, fetchPreferences, updatePreferences: updateStorePreferences } = useUserStore()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
 
-  // 获取用户资料
+  // 获取用户资料（只在组件挂载时执行一次）
   useEffect(() => {
+    let isMounted = true
+
     async function fetchProfile() {
       try {
         setIsLoading(true)
         const data = await userAPI.getProfile()
-        setProfile(data)
+        if (isMounted) {
+          setProfile(data)
+          // 同时更新 store 中的偏好
+          if (data.preferences) {
+            useUserStore.getState().setPreferences(data.preferences)
+          }
+        }
       } catch (error) {
         console.error("获取用户资料失败:", error)
-        toast({
-          title: "获取用户资料失败",
-          description: "请稍后再试",
-          variant: "destructive",
-        })
+        if (isMounted) {
+          toast({
+            title: "获取用户资料失败",
+            description: "请稍后再试",
+            variant: "destructive",
+          })
+        }
       } finally {
-        setIsLoading(false)
+        if (isMounted) {
+          setIsLoading(false)
+        }
       }
     }
 
+    // 优先使用 store 中的偏好，如果没有再获取
+    const storePreferences = useUserStore.getState().preferences
+    if (!storePreferences) {
+      fetchPreferences()
+    }
+
     fetchProfile()
-  }, [toast])
+
+    return () => {
+      isMounted = false
+    }
+  }, []) // 空依赖数组，只在挂载时执行一次
 
   // 更新用户资料
   const handleSaveProfile = async (updatedData: Partial<UserProfile>) => {
@@ -94,8 +118,17 @@ export default function ProfilePage() {
 
     try {
       setIsSaving(true)
-      await userAPI.updatePreferences(updatedData)
-      setProfile({ ...profile, ...updatedData })
+      
+      // 如果更新的是偏好，使用专门的偏好更新接口
+      if (updatedData.preferences) {
+        await updateStorePreferences(updatedData.preferences)
+        setProfile({ ...profile, preferences: updatedData.preferences })
+      } else {
+        // 其他资料更新
+        await userAPI.updateProfile(updatedData)
+        setProfile({ ...profile, ...updatedData })
+      }
+      
       toast({
         title: "保存成功",
         description: "您的资料已更新",
@@ -112,7 +145,7 @@ export default function ProfilePage() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || storeLoading) {
     return (
       <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
@@ -162,7 +195,7 @@ export default function ProfilePage() {
           {/* 旅行偏好 */}
           <TabsContent value="preferences">
             <PreferencesCard
-              preferences={profile.preferences}
+              preferences={preferences || profile?.preferences}
               onSave={(preferences) => handleSaveProfile({ preferences })}
               isSaving={isSaving}
             />
@@ -360,11 +393,34 @@ function PreferencesCard({
   onSave,
   isSaving,
 }: {
-  preferences: UserProfile["preferences"]
+  preferences: UserProfile["preferences"] | null
   onSave: (preferences: UserProfile["preferences"]) => void
   isSaving: boolean
 }) {
-  const [formData, setFormData] = useState(preferences)
+  const [formData, setFormData] = useState<UserPreferences>({
+    budget: preferences?.budget ?? 10000,
+    travelStyle: preferences?.travelStyle ?? "balanced",
+    favoriteDestinations: preferences?.favoriteDestinations ?? [],
+    interests: preferences?.interests ?? [],
+    seasons: preferences?.seasons ?? [],
+    accommodationType: preferences?.accommodationType ?? "hotel",
+    transportationPreference: preferences?.transportationPreference ?? "mixed",
+  })
+
+  // 当 preferences 从外部更新时，同步到 formData
+  useEffect(() => {
+    if (preferences) {
+      setFormData({
+        budget: preferences.budget ?? 10000,
+        travelStyle: preferences.travelStyle ?? "balanced",
+        favoriteDestinations: preferences.favoriteDestinations ?? [],
+        interests: preferences.interests ?? [],
+        seasons: preferences.seasons ?? [],
+        accommodationType: preferences.accommodationType ?? "hotel",
+        transportationPreference: preferences.transportationPreference ?? "mixed",
+      })
+    }
+  }, [preferences])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -415,14 +471,15 @@ function PreferencesCard({
             <Label>预算范围 (人民币/人)</Label>
             <div className="pt-2">
               <Slider
-                value={[formData.budget]}
+                value={[formData.budget ?? 10000]}
                 max={20000}
+                min={1000}
                 step={500}
                 onValueChange={(value) => setFormData({ ...formData, budget: value[0] })}
               />
               <div className="flex justify-between mt-2">
                 <span className="text-sm text-muted-foreground">¥1,000</span>
-                <span className="text-sm font-medium">¥{formData.budget.toLocaleString()}</span>
+                <span className="text-sm font-medium">¥{(formData.budget ?? 10000).toLocaleString()}</span>
                 <span className="text-sm text-muted-foreground">¥20,000</span>
               </div>
             </div>

@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS attraction_vectors (
     description TEXT,
     image_url VARCHAR(500),
     likes INTEGER DEFAULT 0,
-    -- 向量字段 (1536 维，对应 OpenAI text-embedding-3-small)
-    embedding vector(1536),
+    -- 向量字段（动态维度，支持 OpenAI 1536 维和 Ollama 768 维）
+    embedding vector,
     -- 元数据字段（用于过滤）
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -49,9 +49,9 @@ EXECUTE FUNCTION update_updated_at_column();
 -- 创建用户偏好向量表（用于缓存用户偏好向量）
 CREATE TABLE IF NOT EXISTS user_preference_vectors (
     id SERIAL PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
+    user_id VARCHAR(255) NOT NULL UNIQUE,
     preference_text TEXT NOT NULL,
-    embedding vector(1536),
+    embedding vector,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

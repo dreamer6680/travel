@@ -1,5 +1,103 @@
 import { query } from "../db-pg"
-import { generateEmbedding, buildAttractionText } from "./vector-service"
+import { generateEmbedding, buildAttractionText, buildUserPreferenceText } from "./vector-service"
+
+/**
+ * 确保向量索引存在（在首次插入数据后调用）
+ */
+async function ensureVectorIndexes() {
+  try {
+    const getVectorColumnType = async (tableName: string, columnName: string) => {
+      const res = await query<{ full_type: string }>(
+        `
+        SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) as full_type
+        FROM pg_attribute a
+        JOIN pg_class c ON a.attrelid = c.oid
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = 'public'
+          AND c.relname = $1
+          AND a.attname = $2
+          AND NOT a.attisdropped
+          AND a.attnum > 0
+      `,
+        [tableName, columnName]
+      )
+      return res.rows[0]?.full_type ?? null
+    }
+
+    // 检查景点向量索引
+    const attractionIndexCheck = await query(`
+      SELECT EXISTS (
+        SELECT FROM pg_indexes 
+        WHERE tablename = 'attraction_vectors' 
+        AND indexname = 'attraction_vectors_embedding_idx'
+      )
+    `)
+
+    if (!attractionIndexCheck.rows[0].exists) {
+      const colType = await getVectorColumnType("attraction_vectors", "embedding")
+      if (!colType) return
+      if (!/^vector\(\d+\)$/.test(colType)) {
+        // embedding 是动态 vector（无维度），pgvector 无法创建 HNSW/IVFFLAT 索引
+        return
+      }
+
+      // 检查是否有数据，并获取一个向量来验证维度
+      const dataCheck = await query(
+        "SELECT embedding FROM attraction_vectors WHERE embedding IS NOT NULL LIMIT 1"
+      )
+      if (dataCheck.rows.length > 0) {
+        try {
+          await query(`
+            CREATE INDEX attraction_vectors_embedding_idx 
+            ON attraction_vectors 
+            USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
+          `)
+        } catch {
+          // 不影响主流程
+        }
+      }
+    }
+
+    // 检查用户偏好向量索引
+    const userPrefIndexCheck = await query(`
+      SELECT EXISTS (
+        SELECT FROM pg_indexes 
+        WHERE tablename = 'user_preference_vectors' 
+        AND indexname = 'user_preference_vectors_embedding_idx'
+      )
+    `)
+
+    if (!userPrefIndexCheck.rows[0].exists) {
+      const colType = await getVectorColumnType("user_preference_vectors", "embedding")
+      if (!colType) return
+      if (!/^vector\(\d+\)$/.test(colType)) {
+        // embedding 是动态 vector（无维度），pgvector 无法创建 HNSW/IVFFLAT 索引
+        return
+      }
+
+      // 检查是否有数据，并获取一个向量来验证维度
+      const dataCheck = await query(
+        "SELECT embedding FROM user_preference_vectors WHERE embedding IS NOT NULL LIMIT 1"
+      )
+      if (dataCheck.rows.length > 0) {
+        try {
+          await query(`
+            CREATE INDEX user_preference_vectors_embedding_idx 
+            ON user_preference_vectors 
+            USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
+          `)
+        } catch {
+          // 不影响主流程
+        }
+      }
+    }
+  } catch (error) {
+    // 索引创建失败不影响主流程
+    console.warn("创建向量索引失败（不影响数据插入）:", error)
+  }
+}
 
 export interface Attraction {
   id: number
@@ -49,38 +147,64 @@ export async function addAttractionToVectorDB(
       likes: attraction.likes,
     }
 
-    // 插入到向量数据库
-    await query(
-      `INSERT INTO attraction_vectors 
-       (attraction_id, name, location, rating, type, description, image_url, likes, embedding, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb)
-       ON CONFLICT (attraction_id) 
-       DO UPDATE SET 
-         name = EXCLUDED.name,
-         location = EXCLUDED.location,
-         rating = EXCLUDED.rating,
-         type = EXCLUDED.type,
-         description = EXCLUDED.description,
-         image_url = EXCLUDED.image_url,
-         likes = EXCLUDED.likes,
-         embedding = EXCLUDED.embedding,
-         metadata = EXCLUDED.metadata,
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        attraction.id,
-        attraction.name,
-        attraction.location,
-        attraction.rating,
-        attraction.type,
-        attraction.description,
-        attraction.imageUrl,
-        attraction.likes,
-        JSON.stringify(embedding),
-        JSON.stringify(metadata),
-      ]
+    // 检查是否已存在
+    const existing = await query<AttractionVector>(
+      "SELECT id FROM attraction_vectors WHERE attraction_id = $1",
+      [attraction.id]
     )
 
+    if (existing.rows.length > 0) {
+      // 更新现有记录
+      await query(
+        `UPDATE attraction_vectors 
+         SET name = $1,
+             location = $2,
+             rating = $3,
+             type = $4,
+             description = $5,
+             image_url = $6,
+             likes = $7,
+             embedding = $8::vector,
+             metadata = $9::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE attraction_id = $10`,
+        [
+          attraction.name,
+          attraction.location,
+          attraction.rating,
+          attraction.type,
+          attraction.description,
+          attraction.imageUrl,
+          attraction.likes,
+          JSON.stringify(embedding),
+          JSON.stringify(metadata),
+          attraction.id,
+        ]
+      )
+    } else {
+      // 插入新记录
+      await query(
+        `INSERT INTO attraction_vectors 
+         (attraction_id, name, location, rating, type, description, image_url, likes, embedding, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb)`,
+        [
+          attraction.id,
+          attraction.name,
+          attraction.location,
+          attraction.rating,
+          attraction.type,
+          attraction.description,
+          attraction.imageUrl,
+          attraction.likes,
+          JSON.stringify(embedding),
+          JSON.stringify(metadata),
+        ]
+      )
+    }
+
     console.log(`✅ 已添加景点到向量库: ${attraction.name}`)
+    
+    // 注意：向量索引将在批量插入完成后统一创建，避免频繁创建失败
   } catch (error) {
     console.error(`❌ 添加景点到向量库失败 (${attraction.name}):`, error)
     throw error
@@ -111,6 +235,9 @@ export async function addAttractionsBatch(
   }
 
   console.log(`✅ 批量添加完成，共 ${attractions.length} 个景点`)
+  
+  // 批量插入完成后，尝试创建向量索引
+  await ensureVectorIndexes()
 }
 
 /**
@@ -271,5 +398,104 @@ export async function updateAttractionVector(
   } catch (error) {
     console.error(`❌ 更新景点向量失败 (ID: ${attractionId}):`, error)
     throw error
+  }
+}
+
+/**
+ * 保存或更新用户偏好向量到向量数据库
+ * 用于缓存用户偏好向量，提高相似度匹配性能
+ */
+export async function saveUserPreferenceVector(
+  userId: string,
+  preferences: {
+    destination?: string
+    travelStyle?: string
+    interests?: string | string[]
+    budget?: number
+    travelers?: number
+    favoriteDestinations?: string[]
+    seasons?: string[]
+    accommodationType?: string
+    transportationPreference?: string
+  }
+): Promise<void> {
+  try {
+    // 构建偏好文本
+    const preferenceText = buildUserPreferenceText({
+      destination: preferences.destination,
+      travelStyle: preferences.travelStyle,
+      interests: preferences.interests,
+      budget: preferences.budget,
+      travelers: preferences.travelers,
+    })
+
+    // 如果偏好文本为空，跳过
+    if (!preferenceText || preferenceText.trim().length === 0) {
+      console.log(`⚠️  用户 ${userId} 的偏好为空，跳过向量存储`)
+      return
+    }
+
+    // 生成向量嵌入
+    const embedding = await generateEmbedding(preferenceText)
+
+    // 构建元数据
+    const metadata = {
+      travelStyle: preferences.travelStyle,
+      favoriteDestinations: preferences.favoriteDestinations || [],
+      interests: Array.isArray(preferences.interests) 
+        ? preferences.interests 
+        : (preferences.interests ? [preferences.interests] : []),
+      seasons: preferences.seasons || [],
+      accommodationType: preferences.accommodationType,
+      transportationPreference: preferences.transportationPreference,
+      budget: preferences.budget,
+      travelers: preferences.travelers,
+    }
+
+    // 检查是否已存在该用户的偏好向量
+    const existing = await query(
+      "SELECT id FROM user_preference_vectors WHERE user_id = $1",
+      [userId]
+    )
+
+    if (existing.rows.length > 0) {
+      // 更新现有记录
+      await query(
+        `UPDATE user_preference_vectors 
+         SET preference_text = $1, 
+             embedding = $2::vector, 
+             metadata = $3::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $4`,
+        [
+          preferenceText,
+          JSON.stringify(embedding),
+          JSON.stringify(metadata),
+          userId,
+        ]
+      )
+    } else {
+      // 插入新记录
+      await query(
+        `INSERT INTO user_preference_vectors 
+         (user_id, preference_text, embedding, metadata)
+         VALUES ($1, $2, $3::vector, $4::jsonb)`,
+        [
+          userId,
+          preferenceText,
+          JSON.stringify(embedding),
+          JSON.stringify(metadata),
+        ]
+      )
+    }
+
+    console.log(`✅ 已保存用户偏好向量: ${userId}`)
+    
+    // 在首次插入后，确保向量索引存在
+    await ensureVectorIndexes()
+  } catch (error) {
+    console.error(`❌ 保存用户偏好向量失败 (${userId}):`, error)
+    // 不抛出错误，避免影响主流程
+    // 偏好向量存储失败不应该阻止偏好设置的更新
   }
 }

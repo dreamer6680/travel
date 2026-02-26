@@ -12,6 +12,8 @@ import { useSearchParams } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
+import { TripRouteMap } from "@/components/trip-route-map"
+import { enhanceTripWithLocations, TripWithLocations } from "@/lib/services/trip-location-enhancer"
 
 // 定义行程类型
 interface Trip {
@@ -57,17 +59,44 @@ export default function TripResultPage() {
   const { toast } = useToast()
 
   const [trip, setTrip] = useState<Trip | null>(null)
+  const [tripWithLocations, setTripWithLocations] = useState<TripWithLocations | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSaved, setIsSaved] = useState(false)
   const router = useRouter()
   useEffect(() => {
     async function fetchTripData() {
-
       try {
         setIsLoading(true)
         const data = JSON.parse(localStorage.getItem("trip") || "{}")
         setTrip(data)
+
+        // 如果有行程数据，获取地点信息
+        if (data && data.days) {
+          setIsLoadingLocations(true)
+          try {
+            // 调用 API 获取地点坐标
+            const response = await fetch("/api/trips/locations", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ trip: data }),
+            })
+
+            if (response.ok) {
+              const tripWithLocations = await response.json()
+              setTripWithLocations(tripWithLocations)
+            } else {
+              console.warn("获取地点信息失败，将显示不带地图的行程")
+            }
+          } catch (err) {
+            console.error("获取地点信息失败:", err)
+          } finally {
+            setIsLoadingLocations(false)
+          }
+        }
       } catch (err) {
         console.error("获取行程数据失败:", err)
         setError("获取行程数据失败，请稍后再试")
@@ -284,17 +313,49 @@ export default function TripResultPage() {
             </Card>
           </TabsContent>
           <TabsContent value="map">
-            <Card>
-              <CardHeader>
-                <CardTitle>行程地图</CardTitle>
-                <CardDescription>查看您的行程在地图上的分布</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
-                  <p className="text-muted-foreground">地图视图将在这里显示</p>
-                </div>
-              </CardContent>
-            </Card>
+            {isLoadingLocations ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>行程地图</CardTitle>
+                  <CardDescription>正在加载地点信息...</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
+                    <div className="text-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
+                      <p className="text-muted-foreground">正在获取地点坐标...</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : tripWithLocations && tripWithLocations.allLocations.length > 0 ? (
+              <TripRouteMap
+                destination={tripWithLocations.destination}
+                days={tripWithLocations.days}
+                allLocations={tripWithLocations.allLocations.map((loc) => ({
+                  name: loc.name,
+                  coordinate: loc.coordinate,
+                }))}
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>行程地图</CardTitle>
+                  <CardDescription>查看您的行程在地图上的分布</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
+                    <div className="text-center">
+                      <MapPin className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-50" />
+                      <p className="text-muted-foreground">暂无地点信息</p>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        无法获取活动地点的坐标信息
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
           <TabsContent value="info">
             <Card>
