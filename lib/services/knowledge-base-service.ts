@@ -108,6 +108,12 @@ export interface Attraction {
   description: string
   imageUrl: string
   likes: number
+  // 经纬度坐标（可选）
+  coordinate?: {
+    latitude: number
+    longitude: number
+    coordinateType?: string // 'BD09' | 'WGS84' | 'GCJ02'
+  }
 }
 
 export interface AttractionVector {
@@ -120,6 +126,9 @@ export interface AttractionVector {
   description: string | null
   image_url: string | null
   likes: number
+  latitude: number | null
+  longitude: number | null
+  coordinate_type: string | null
   embedding: number[]
   metadata: Record<string, any>
   similarity?: number // 相似度分数（在搜索结果中会包含）
@@ -138,13 +147,22 @@ export async function addAttractionToVectorDB(
     // 生成向量嵌入
     const embedding = await generateEmbedding(text)
 
-    // 构建元数据
-    const metadata = {
+    // 构建元数据（包含坐标信息）
+    const metadata: any = {
       originalId: attraction.id,
       location: attraction.location,
       type: attraction.type,
       rating: attraction.rating,
       likes: attraction.likes,
+    }
+    
+    // 如果有坐标信息，添加到元数据中
+    if (attraction.coordinate) {
+      metadata.coordinate = {
+        latitude: attraction.coordinate.latitude,
+        longitude: attraction.coordinate.longitude,
+        coordinateType: attraction.coordinate.coordinateType || 'BD09',
+      }
     }
 
     // 检查是否已存在
@@ -152,6 +170,11 @@ export async function addAttractionToVectorDB(
       "SELECT id FROM attraction_vectors WHERE attraction_id = $1",
       [attraction.id]
     )
+
+    // 提取坐标信息
+    const latitude = attraction.coordinate?.latitude || null
+    const longitude = attraction.coordinate?.longitude || null
+    const coordinateType = attraction.coordinate?.coordinateType || 'BD09'
 
     if (existing.rows.length > 0) {
       // 更新现有记录
@@ -164,10 +187,13 @@ export async function addAttractionToVectorDB(
              description = $5,
              image_url = $6,
              likes = $7,
-             embedding = $8::vector,
-             metadata = $9::jsonb,
+             latitude = $8,
+             longitude = $9,
+             coordinate_type = $10,
+             embedding = $11::vector,
+             metadata = $12::jsonb,
              updated_at = CURRENT_TIMESTAMP
-         WHERE attraction_id = $10`,
+         WHERE attraction_id = $13`,
         [
           attraction.name,
           attraction.location,
@@ -176,6 +202,9 @@ export async function addAttractionToVectorDB(
           attraction.description,
           attraction.imageUrl,
           attraction.likes,
+          latitude,
+          longitude,
+          coordinateType,
           JSON.stringify(embedding),
           JSON.stringify(metadata),
           attraction.id,
@@ -185,8 +214,8 @@ export async function addAttractionToVectorDB(
       // 插入新记录
       await query(
         `INSERT INTO attraction_vectors 
-         (attraction_id, name, location, rating, type, description, image_url, likes, embedding, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb)`,
+         (attraction_id, name, location, rating, type, description, image_url, likes, latitude, longitude, coordinate_type, embedding, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::vector, $13::jsonb)`,
         [
           attraction.id,
           attraction.name,
@@ -196,6 +225,9 @@ export async function addAttractionToVectorDB(
           attraction.description,
           attraction.imageUrl,
           attraction.likes,
+          latitude,
+          longitude,
+          coordinateType,
           JSON.stringify(embedding),
           JSON.stringify(metadata),
         ]
@@ -265,6 +297,9 @@ export async function searchSimilarAttractions(
         description,
         image_url,
         likes,
+        latitude,
+        longitude,
+        coordinate_type,
         metadata,
         1 - (embedding <=> $1::vector) as similarity
       FROM attraction_vectors

@@ -88,11 +88,34 @@ export class TripGenerationWorkflowService {
       try {
         const attractionsForRoute: AttractionWithLocation[] = matchedAttractions
           .slice(0, 10) // 限制数量，避免 API 调用过多
-          .map((attr) => ({
-            id: attr.attraction_id,
-            name: attr.name,
-            location: attr.location || "",
-          }))
+          .map((attr) => {
+            const attraction: AttractionWithLocation = {
+              id: attr.attraction_id,
+              name: attr.name,
+              location: attr.location || "",
+            }
+            
+            // 优先使用数据库中的坐标字段
+            if (attr.latitude !== null && attr.longitude !== null) {
+              attraction.coordinate = {
+                latitude: attr.latitude,
+                longitude: attr.longitude,
+                coordinateType: attr.coordinate_type || 'BD09',
+              }
+            }
+            // 降级：从 metadata 中获取坐标
+            else if (attr.metadata?.coordinate) {
+              attraction.coordinate = {
+                latitude: attr.metadata.coordinate.latitude,
+                longitude: attr.metadata.coordinate.longitude,
+                coordinateType: attr.metadata.coordinate.coordinateType || 'BD09',
+              }
+            }
+            
+            return attraction
+          })
+
+        console.log("attractionsForRoute", attractionsForRoute)
 
         routePlan = await planRoute(attractionsForRoute, {
           profile: "driving-car",

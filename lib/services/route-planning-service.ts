@@ -13,6 +13,12 @@ export interface AttractionWithLocation {
   name: string
   location: string
   coordinates?: Coordinate
+  // 从数据库获取的坐标信息（优先使用）
+  coordinate?: {
+    latitude: number
+    longitude: number
+    coordinateType?: string // 'BD09' | 'WGS84' | 'GCJ02'
+  }
 }
 
 export interface RoutePlan {
@@ -31,7 +37,26 @@ export interface RoutePlan {
 }
 
 /**
- * 从地址获取坐标（地理编码）
+ * 将数据库中的坐标转换为 Coordinate 格式
+ * 注意：如果坐标是 BD09（百度坐标系），可能需要转换为 WGS84
+ */
+function convertCoordinateToStandard(
+  coordinate: {
+    latitude: number
+    longitude: number
+    coordinateType?: string
+  }
+): Coordinate {
+  // 目前直接使用，如果后续需要坐标系转换，可以在这里添加转换逻辑
+  // BD09 -> WGS84 的转换需要专门的算法
+  return {
+    lat: coordinate.latitude,
+    lng: coordinate.longitude,
+  }
+}
+
+/**
+ * 从地址获取坐标（地理编码）- 降级方案
  * 注意：OpenRouteService 免费版需要 API Key，但也可以使用其他地理编码服务
  */
 async function geocodeAddress(
@@ -256,21 +281,38 @@ export async function planRoute(
   const { profile = "driving-car", optimize = true } = options
 
   try {
-    // 1. 获取所有景点的坐标
-    const locations = attractions.map((attr) => attr.location)
-    const coordinates = await geocodeAddresses(locations)
-
-    // 2. 过滤掉无法获取坐标的景点
+    // 1. 优先使用景点数据中已有的坐标，如果没有再尝试地理编码
     const validAttractions: AttractionWithLocation[] = []
     const validCoordinates: Coordinate[] = []
 
-    for (let i = 0; i < attractions.length; i++) {
-      if (coordinates[i]) {
+    for (const attraction of attractions) {
+      let coordinate: Coordinate | null = null
+
+      // 优先使用已有的 coordinates 字段
+      if (attraction.coordinates) {
+        coordinate = attraction.coordinates
+      }
+      // 其次使用从数据库获取的 coordinate 字段（需要转换坐标系）
+      else if (attraction.coordinate) {
+        // 将数据库中的坐标转换为 Coordinate 格式
+        coordinate = convertCoordinateToStandard(attraction.coordinate)
+      }
+      // 降级方案：如果没有坐标，尝试地理编码
+      else {
+        console.log(`景点 ${attraction.name} 没有坐标信息，尝试地理编码...`)
+        coordinate = await geocodeAddress(attraction.location)
+        // 添加延迟，避免速率限制
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+
+      if (coordinate) {
         validAttractions.push({
-          ...attractions[i],
-          coordinates: coordinates[i]!,
+          ...attraction,
+          coordinates: coordinate,
         })
-        validCoordinates.push(coordinates[i]!)
+        validCoordinates.push(coordinate)
+      } else {
+        console.warn(`无法获取景点 ${attraction.name} 的坐标，跳过`)
       }
     }
 

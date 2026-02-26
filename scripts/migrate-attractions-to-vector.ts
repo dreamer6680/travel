@@ -18,6 +18,12 @@ interface MongoAttraction {
   description: string
   imageUrl: string
   likes: number
+  // 经纬度坐标（可选）
+  coordinate?: {
+    latitude: number
+    longitude: number
+    coordinateType?: string
+  }
 }
 
 async function migrateAttractions() {
@@ -41,7 +47,7 @@ async function migrateAttractions() {
       return
     }
 
-    // 转换为向量库格式
+    // 转换为向量库格式（包含坐标信息）
     const attractions = mongoAttractions.map((attraction) => ({
       id: attraction.id,
       name: attraction.name,
@@ -51,6 +57,12 @@ async function migrateAttractions() {
       description: attraction.description,
       imageUrl: attraction.imageUrl,
       likes: attraction.likes || 0,
+      // 传递坐标信息（如果存在）
+      coordinate: attraction.coordinate ? {
+        latitude: attraction.coordinate.latitude,
+        longitude: attraction.coordinate.longitude,
+        coordinateType: attraction.coordinate.coordinateType || 'BD09',
+      } : undefined,
     }))
 
     // 批量添加到向量库

@@ -13,7 +13,9 @@
     "pg:init": "tsx scripts/init-pg-vector.ts",
     "pg:fix-dimensions": "tsx scripts/fix-vector-dimensions.ts",
     "pg:create-indexes": "tsx scripts/create-vector-indexes.ts",
+    "pg:add-coordinates": "tsx scripts/add-coordinate-columns.ts",
     "pg:migrate": "tsx scripts/migrate-attractions-to-vector.ts",
+    "scrape": "tsx scripts/run-scrape.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:setup": "docker-compose up -d && npm run db:setup"
