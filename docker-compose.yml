@@ -23,6 +23,30 @@ services:
       retries: 5
       start_period: 40s
 
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: travel-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-travel_vectors}
+    volumes:
+      # 数据持久化
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本
+      - ./scripts/init-pg-vector.sql:/docker-entrypoint-initdb.d/init-pg-vector.sql
+    networks:
+      - travel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # 数据库初始化服务（仅在首次启动时运行）
   db-init:
     image: node:20-alpine
@@ -47,6 +71,8 @@ services:
 
 volumes:
   mongodb_data:
+    driver: local
+  postgres_data:
     driver: local
   node_modules:
     driver: local

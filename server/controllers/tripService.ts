@@ -52,8 +52,42 @@ export class TripService {
 
   /**
    * 创建行程（使用 AI 生成）
+   * 新版本：使用向量相似度匹配 + OpenAI + 路线规划
    */
   async createTripWithAI(tripData: any) {
+    try {
+      // 使用新的工作流服务
+      const { TripGenerationWorkflowService } = await import(
+        "./trip-generation-workflow.service"
+      )
+      const workflowService = new TripGenerationWorkflowService()
+
+      // 检查是否启用新工作流（可以通过环境变量或参数控制）
+      const useNewWorkflow =
+        process.env.USE_VECTOR_WORKFLOW !== "false" &&
+        process.env.OPENAI_API_KEY
+
+      if (useNewWorkflow) {
+        console.log("使用新的向量工作流生成行程")
+        const result = await workflowService.generateTrip(tripData)
+        return result.trip
+      } else {
+        // 降级方案：使用快速生成（不进行路线规划）
+        console.log("使用快速生成模式")
+        const result = await workflowService.generateTripQuick(tripData)
+        return result.trip
+      }
+    } catch (error) {
+      console.error("新工作流失败，使用降级方案:", error)
+      // 降级到原始实现（如果新工作流失败）
+      return this.createTripWithAIFallback(tripData)
+    }
+  }
+
+  /**
+   * 降级方案：原始实现（保留向后兼容）
+   */
+  private async createTripWithAIFallback(tripData: any) {
     const messages = `你是一位专业的旅游行程设计师，请根据以下用户需求，生成一份详细而实用的旅游行程规划。请综合考虑目的地的特色、美食、购物、交通和住宿等要素，并严格按照给定的 JSON 模板格式输出。
 
 请确保内容包括：
