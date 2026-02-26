@@ -4,6 +4,7 @@ export const backendEndpoint = {
   auth: {
     login: "/auth/login",
     register: "/auth/register",
+    verify: "/auth/verify",
   },
   // 用户相关
   user: {

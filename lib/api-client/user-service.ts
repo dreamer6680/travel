@@ -21,6 +21,16 @@ export class UserService {
     return fetchAPI(backendEndpoint.user.profile)
   }
 
+  logout() {
+    // 清除 token
+    const { removeToken } = require("../api/fetch-api")
+    removeToken()
+    // 跳转到登录页
+    if (typeof window !== "undefined") {
+      window.location.href = "/login"
+    }
+  }
+
   updateProfile(profileData: any) {
     return fetchAPI(backendEndpoint.user.profile, {
       method: "PUT",
