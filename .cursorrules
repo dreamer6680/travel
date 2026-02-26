@@ -1,0 +1,245 @@
+# API Client 使用规则
+
+## 📋 基本原则
+
+### 1. API Client 分类使用
+
+
+### 2. 认证处理
+- 所有需要认证的请求必须设置 `useAuth: true`
+- 不要手动传递 token
+- ApiClient 会自动从 Amplify 获取 token
+
+**示例**:
+```typescript
+// ✅ 正确
+await backendApiClient.get(BACKEND_API_ENDPOINTS.USER_PROFILE, {
+  useAuth: true
+})
+
+// ❌ 错误 - 手动传递 token
+await fetch(url, {
+  headers: { 'Authorization': `Bearer ${token}` }
+})
+```
+
+### 3. 端点定义
+- 所有 API 端点必须在 `src/common/lib/constants.ts` 中定义
+- Backend 端点定义在 `BACKEND_API_ENDPOINTS`
+- AI 端点定义在 `AI_API_ENDPOINTS`
+- 不要在代码中硬编码端点路径
+
+### 4. 错误处理
+- 使用统一的 `ApiError` 类
+- 错误会自动分类: `401`, `408` (TIMEOUT), `0` (NETWORK_ERROR/UNKNOWN_ERROR)
+- 捕获错误时检查 `error.code` 和 `error.status`
+
+## 🚫 禁止事项
+
+### 1. 禁止主动提交代码
+- 不要执行 `git commit` 或 `git push`
+- 不要主动提交代码
+- 用户会自己决定何时提交
+
+### 2. 禁止创建文档文件
+- 不要创建 `.md` 文件（除非用户明确要求）
+
+## ⚙️ 配置说明
+
+### RUNTIME_CONFIG
+```typescript
+export const RUNTIME_CONFIG = {
+  BACKEND_SERVICE_URL: 'https://backend.sigmatrx.ai',
+  AI_SERVICE_URL: 'https://ai.sigmatrx.ai',
+  TIMEOUT: 600000, // 10分钟
+  USE_MOCK_API: false
+}
+```
+
+### ApiClient 实例
+```typescript
+// Backend Service Client
+export const backendApiClient = new ApiClient(RUNTIME_CONFIG.BACKEND_SERVICE_URL)
+
+// AI Service Client
+export const aiApiClient = new ApiClient(RUNTIME_CONFIG.AI_SERVICE_URL)
+
+// 向后兼容的默认实例（即 backendApiClient）
+export const apiClient = backendApiClient
+```
+
+## 📌 关键点总结
+
+1. **永远使用配置**: 不要硬编码任何 URL 或端点
+2. **分类使用客户端**: Backend 用 `backendApiClient`，AI 用 `aiApiClient`
+3. **自动认证**: 使用 `useAuth: true`，不要手动管理 token
+4. **统一错误处理**: 所有错误都是 `ApiError` 类型
+5. **不要主动提交**: 让用户自己控制 git 操作
+6. **不要创建文档**: 除非用户明确要求
+
+---
+
+# 用户配置 Store 使用规则
+
+## 📋 基本原则
+
+### 1. Store 结构规范
+所有用户配置必须使用嵌套结构，每个配置类型是独立的顶级属性：
+
+```typescript
+interface UserConfigStore {
+  
+  // 用户偏好（未来示例）
+  userPreferences: UserPreferencesData
+  
+  // 用户设置（未来示例）
+  userSettings: UserSettingsData
+  
+  // 方法在顶层
+  getProjectConfig: (type: UserProjectConfigType) => Promise<string | null>
+  getUserPreferences: () => Promise<UserPreferences | null>
+  // ...
+}
+```
+
+### 2. 配置数据接口规范
+每个配置类型必须有自己的数据接口：
+
+```typescript
+interface ProjectConfigData {
+  /** 配置数据 */
+  configs: Record<UserProjectConfigType, any>
+}
+
+interface UserPreferencesData {
+  /** 偏好数据 */
+  preferences: {
+    language: string
+    theme: string
+    // ...
+  }
+}
+```
+
+### 3. 获取配置的通用逻辑
+所有配置获取方法必须遵循以下三级降级策略：
+
+```typescript
+getXxxConfig: async () => {
+  // 1. 先检查 store 中是否已有数据
+  const existingConfig = state.xxxConfig.data
+  if (existingConfig) {
+    return existingConfig
+  }
+
+  // 2. 如果没有，调用接口获取
+  try {
+    const configData = await api.getXxxConfig()
+    set({ xxxConfig: { data: configData } })
+    return configData
+  } catch (err) {
+    // 3. 接口失败，返回默认值
+    console.error('获取配置失败，使用默认值', err)
+    return defaultXxxConfig
+  }
+}
+```
+
+### 4. 持久化配置
+使用 zustand persist 中间件持久化配置：
+
+```typescript
+persist(
+  (set, get) => ({ /* store 定义 */ }),
+  {
+    name: 'user-config-store',
+    partialize: (state) => ({
+      projectConfig: state.projectConfig,
+      // 只持久化数据，不包括方法
+    }),
+  }
+)
+```
+
+## 📝 代码示例
+
+### 使用项目配置
+```typescript
+import { useUserConfigStore } from '@/common/store'
+
+// 获取配置
+const { getProjectConfig } = useUserConfigStore()
+const summaryConfig = await getProjectConfig('summary')
+
+// 访问已缓存的配置
+const { projectConfig } = useUserConfigStore()
+const config = projectConfig.configs.summary
+```
+
+### 添加新的配置类型（示例）
+```typescript
+// 1. 定义类型
+interface UserPreferencesData {
+  preferences: {
+    language: string
+    theme: 'light' | 'dark'
+  }
+}
+
+// 2. 添加到 Store 接口
+interface UserConfigStore {
+  projectConfig: ProjectConfigData
+  userPreferences: UserPreferencesData  // 新增
+  getUserPreferences: () => Promise<UserPreferences | null>  // 新增方法
+}
+
+// 3. 实现获取方法
+getUserPreferences: async () => {
+  const state = get()
+  if (state.userPreferences.preferences) {
+    return state.userPreferences.preferences
+  }
+  
+  try {
+    const prefs = await getUserPreferencesAPI()
+    set({ userPreferences: { preferences: prefs } })
+    return prefs
+  } catch (err) {
+    return { language: 'en', theme: 'light' }  // 默认值
+  }
+}
+```
+
+## 🚫 禁止事项
+
+1. **不要扁平化结构**: 不要把所有配置放在同一层级
+   ```typescript
+   // ❌ 错误
+   interface UserConfigStore {
+     configs: { projectConfig: {...}, userPreferences: {...} }
+   }
+   
+   // ✅ 正确
+   interface UserConfigStore {
+     projectConfig: {...}
+     userPreferences: {...}
+   }
+   ```
+
+2. **不要跳过缓存检查**: 每次都要先检查 store
+3. **不要忘记持久化**: 所有数据都应该通过 `partialize` 持久化
+4. **不要返回 undefined**: 接口失败时总是返回有意义的默认值
+
+## 🔍 现有配置类型
+
+- ✅ `projectConfig`: 项目配置（summary, chapter, mind_map 等）
+- 🚧 可扩展添加: `userPreferences`, `userSettings`, `workspaceSettings` 等
+
+## 📌 关键点总结
+
+1. **嵌套结构**: 每个配置类型是独立的顶级属性
+2. **数据和方法分离**: 配置数据在嵌套对象下，方法在 store 顶层
+3. **三级降级**: store -> API -> 默认值
+4. **自动持久化**: 使用 zustand persist 中间件
+5. **类型安全**: 每个配置类型都有明确的接口定义
+

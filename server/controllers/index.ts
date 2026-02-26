@@ -1,7 +1,7 @@
 // 导出所有控制器
-export { BlogService } from "./blog.service"
-export { TripService } from "./trip.service"
-export { UserService } from "./user.service"
-export { RecommendationService } from "./recommendation.service"
-export { ChatService } from "./chat.service"
-export { AuthService } from "./auth.service"
+export { BlogService } from "./blogService"
+export { TripService } from "./tripService"
+export { UserService } from "./userService"
+export { RecommendationService } from "./recommendationService"
+export { ChatService } from "./chatService"
+export { AuthService } from "./authService"

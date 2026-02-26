@@ -14,7 +14,7 @@ import {
   navigationMenuTriggerStyle,
 } from "@/components/ui/navigation-menu"
 import { cn } from "@/lib/utils"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Menu, X, User, LogIn, MessageCircle } from "lucide-react"
 import { ModeToggle } from "./mode-toggle"
 import {
@@ -24,9 +24,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useUserStore } from "@/lib/store/user-store"
 
 export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const { user, isAuthenticated, checkAuth, logout } = useUserStore()
+
+  // 组件挂载时检查登录状态
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
 
   return (
     <header className="border-b sticky top-0 z-40 bg-background">
@@ -67,35 +74,45 @@ export default function Navbar() {
 
           <div className="flex items-center gap-4">
             <ModeToggle />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon">
-                  <User className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link href="/profile">个人设置</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/trips">我的行程</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/chat">AI 助手</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/admin">后台管理</Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>退出登录</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button asChild>
-              <Link href="/login">
-                <LogIn className="h-4 w-4 mr-2" />
-                登录
-              </Link>
-            </Button>
+            {isAuthenticated && user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <User className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <div className="px-2 py-1.5">
+                    <p className="text-sm font-medium">{user.name}</p>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/profile">个人设置</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/trips">我的行程</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/chat">AI 助手</Link>
+                  </DropdownMenuItem>
+                  {user.role === "admin" && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin">后台管理</Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout}>退出登录</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button asChild>
+                <Link href="/login">
+                  <LogIn className="h-4 w-4 mr-2" />
+                  登录
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -130,18 +147,30 @@ export default function Navbar() {
             后台管理
           </Link>
           <div className="pt-4 border-t flex flex-col gap-2">
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/profile">
-                <User className="h-4 w-4 mr-2" />
-                个人中心
-              </Link>
-            </Button>
-            <Button asChild className="w-full">
-              <Link href="/login">
-                <LogIn className="h-4 w-4 mr-2" />
-                登录
-              </Link>
-            </Button>
+            {isAuthenticated && user ? (
+              <>
+                <div className="px-2 py-1.5 mb-2">
+                  <p className="text-sm font-medium">{user.name}</p>
+                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                </div>
+                <Button asChild variant="outline" className="w-full">
+                  <Link href="/profile">
+                    <User className="h-4 w-4 mr-2" />
+                    个人中心
+                  </Link>
+                </Button>
+                <Button variant="outline" className="w-full" onClick={logout}>
+                  退出登录
+                </Button>
+              </>
+            ) : (
+              <Button asChild className="w-full">
+                <Link href="/login">
+                  <LogIn className="h-4 w-4 mr-2" />
+                  登录
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       )}

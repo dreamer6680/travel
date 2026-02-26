@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { AuthService } from "@/server/controllers/auth.service"
+import { AuthService } from "@/server/controllers/authService"
 
 const authService = new AuthService()
 

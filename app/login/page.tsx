@@ -9,16 +9,17 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
-import { userAPI } from "@/lib/api"
-import { setToken } from "@/lib/api/fetch-api"
 import { useToast } from "@/components/ui/use-toast"
-import { useRouter } from "next/navigation"
+import { useRouter } from 'next/navigation';
+import { useUserStore } from "@/lib/store/user-store"
+import { userAPI } from "@/lib/api"
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
   const router = useRouter()
+  const { login, setToken } = useUserStore()
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -30,22 +31,15 @@ export default function LoginPage() {
     const password = formData.get("password") as string
 
     try {
-      const result = await userAPI.login(email, password)
+      await login(email, password)
+      
+      toast({
+        title: "登录成功",
+        description: "欢迎回来！",
+      })
 
-      if (result.token && result.user) {
-        // 存储 token
-        setToken(result.token)
-        
-        toast({
-          title: "登录成功",
-          description: `欢迎回来，${result.user.name}！`,
-        })
-
-        // 跳转到首页
-        router.push("/")
-      } else {
-        throw new Error(result.error || "登录失败")
-      }
+      // 跳转到首页
+      router.push("/")
     } catch (err: any) {
       const errorMessage = err.message || "登录失败，请检查邮箱和密码"
       setError(errorMessage)
@@ -86,7 +80,7 @@ export default function LoginPage() {
       })
 
       if (result.token && result.user) {
-        // 存储 token
+        // 使用 store 设置 token 和用户信息
         setToken(result.token)
         
         toast({
