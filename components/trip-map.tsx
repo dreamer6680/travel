@@ -60,13 +60,20 @@ export function TripMap({
         setIsLoading(true)
         setError(null)
 
+        const apiKey = process.env.NEXT_PUBLIC_AMAP_KEY
+        if (!apiKey) {
+          throw new Error("NEXT_PUBLIC_AMAP_KEY 未配置")
+        }
+
         // 动态加载高德地图 JS API
         const AMapLoader = (await import("@amap/amap-jsapi-loader")).default
 
         const AMap = await AMapLoader.load({
-          key: process.env.NEXT_PUBLIC_AMAP_KEY || "",
+          key: apiKey,
           version: "2.0",
           plugins: ["AMap.Marker", "AMap.InfoWindow", "AMap.Polyline"],
+          // 如果需要安全密钥，可以添加 securityJsCode
+          // securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_JS_CODE,
         })
 
         // 创建地图实例
@@ -127,9 +134,19 @@ export function TripMap({
         }
 
         setIsLoading(false)
-      } catch (err) {
+      } catch (err: any) {
         console.error("加载地图失败:", err)
-        setError("地图加载失败，请检查高德地图 API Key 配置")
+        
+        let errorMessage = "地图加载失败"
+        if (err?.message?.includes("USERKEY_PLAT_NOMATCH") || err?.message?.includes("USERKEY_PLAT")) {
+          errorMessage = "API Key 平台类型不匹配"
+        } else if (err?.message?.includes("INVALID_USER_KEY") || err?.message?.includes("INVALID")) {
+          errorMessage = "API Key 无效或未配置"
+        } else if (err?.message?.includes("NEXT_PUBLIC_AMAP_KEY")) {
+          errorMessage = "API Key 未配置"
+        }
+        
+        setError(errorMessage)
         setIsLoading(false)
       }
     }
@@ -209,11 +226,27 @@ export function TripMap({
         className={`flex items-center justify-center bg-muted rounded-md ${className}`}
         style={{ height }}
       >
-        <div className="text-center">
-          <p className="text-muted-foreground">{error}</p>
-          <p className="text-sm text-muted-foreground mt-2">
-            请在 .env.local 中配置 NEXT_PUBLIC_AMAP_KEY
-          </p>
+        <div className="text-center max-w-md px-4">
+          <p className="text-muted-foreground font-medium mb-2">{error}</p>
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>请在 .env.local 中配置：</p>
+            <code className="block bg-background px-2 py-1 rounded text-xs mt-1">
+              NEXT_PUBLIC_AMAP_KEY=your-web-js-api-key
+            </code>
+            <p className="mt-2 text-xs">
+              ⚠️ 注意：需要使用 <strong>Web 端（JS API）</strong> 类型的 Key，不是 Web 服务 Key
+            </p>
+            <p className="text-xs mt-1">
+              获取方式：<a 
+                href="https://console.amap.com/dev/key/app" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                高德开放平台控制台
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     )

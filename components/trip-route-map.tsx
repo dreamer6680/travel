@@ -13,6 +13,12 @@ interface Coordinate {
   lng: number
 }
 
+interface Marker {
+  position: Coordinate
+  title: string
+  content?: string
+}
+
 interface ActivityWithLocation {
   time: string
   title: string
@@ -61,18 +67,41 @@ export function TripRouteMap({
 
   // 计算地图中心点
   const mapCenter = useMemo(() => {
-    if (allLocations.length === 0) {
+    // 先尝试从 days 中获取坐标
+    const allCoordinates: Coordinate[] = []
+    days.forEach((day) => {
+      day.activities.forEach((activity) => {
+        if (activity.coordinate && 
+            typeof activity.coordinate.lat === 'number' && 
+            typeof activity.coordinate.lng === 'number') {
+          allCoordinates.push(activity.coordinate)
+        }
+      })
+    })
+    
+    // 如果从 days 中获取不到，使用 allLocations
+    if (allCoordinates.length === 0 && allLocations.length > 0) {
+      allLocations.forEach((loc) => {
+        if (loc.coordinate && 
+            typeof loc.coordinate.lat === 'number' && 
+            typeof loc.coordinate.lng === 'number') {
+          allCoordinates.push(loc.coordinate)
+        }
+      })
+    }
+
+    if (allCoordinates.length === 0) {
       return { lat: 39.9042, lng: 116.4074 } // 默认北京
     }
 
-    const lats = allLocations.map((loc) => loc.coordinate.lat)
-    const lngs = allLocations.map((loc) => loc.coordinate.lng)
+    const lats = allCoordinates.map((coord) => coord.lat)
+    const lngs = allCoordinates.map((coord) => coord.lng)
 
     return {
       lat: (Math.max(...lats) + Math.min(...lats)) / 2,
       lng: (Math.max(...lngs) + Math.min(...lngs)) / 2,
     }
-  }, [allLocations])
+  }, [allLocations, days])
 
   // 生成标记点
   const markers = useMemo(() => {
@@ -81,31 +110,86 @@ export function TripRouteMap({
       if (!day) return []
 
       return day.activities
-        .filter((activity) => activity.coordinate)
-        .map((activity, index) => ({
+        .filter((activity) => {
+          const coord = activity.coordinate
+          return coord && 
+                 typeof coord.lat === 'number' && 
+                 typeof coord.lng === 'number' &&
+                 !isNaN(coord.lat) && 
+                 !isNaN(coord.lng)
+        })
+        .map((activity) => ({
           position: activity.coordinate!,
           title: activity.title,
           content: `${activity.time}<br/>${activity.type}<br/>${activity.description}`,
         }))
     } else {
-      // 整体模式：显示所有地点
-      return allLocations.map((location) => ({
-        position: location.coordinate,
-        title: location.name,
-        content: location.name,
-      }))
+      // 整体模式：显示所有地点（优先使用 days 中的坐标）
+      const markersFromDays: Marker[] = []
+      days.forEach((day) => {
+        day.activities.forEach((activity) => {
+          const coord = activity.coordinate
+          if (coord && 
+              typeof coord.lat === 'number' && 
+              typeof coord.lng === 'number' &&
+              !isNaN(coord.lat) && 
+              !isNaN(coord.lng)) {
+            // 避免重复
+            if (!markersFromDays.find(m => 
+              m.position.lat === coord.lat && m.position.lng === coord.lng
+            )) {
+              markersFromDays.push({
+                position: coord,
+                title: activity.title,
+                content: `${activity.time}<br/>${activity.type}`,
+              })
+            }
+          }
+        })
+      })
+      
+      // 如果从 days 中获取不到，使用 allLocations
+      if (markersFromDays.length > 0) {
+        return markersFromDays
+      }
+      
+      return allLocations
+        .filter((location) => {
+          const coord = location.coordinate
+          return coord && 
+                 typeof coord.lat === 'number' && 
+                 typeof coord.lng === 'number' &&
+                 !isNaN(coord.lat) && 
+                 !isNaN(coord.lng)
+        })
+        .map((location) => ({
+          position: location.coordinate,
+          title: location.name,
+          content: location.name,
+        }))
     }
   }, [displayMode, selectedDay, days, allLocations])
 
   // 生成路线
   const polylines = useMemo(() => {
+    // 验证坐标是否有效
+    const isValidCoordinate = (coord: Coordinate | undefined): coord is Coordinate => {
+      return !!coord && 
+             typeof coord.lat === 'number' && 
+             typeof coord.lng === 'number' &&
+             !isNaN(coord.lat) && 
+             !isNaN(coord.lng)
+    }
+
     if (displayMode === "daily") {
       if (selectedDay === null) return []
 
       const day = days.find((d) => d.day === selectedDay)
       if (!day) return []
 
-      const dayActivities = day.activities.filter((activity) => activity.coordinate)
+      const dayActivities = day.activities.filter((activity) => 
+        isValidCoordinate(activity.coordinate)
+      )
       if (dayActivities.length < 2) return []
 
       const color = DAY_COLORS[(selectedDay - 1) % DAY_COLORS.length]
@@ -122,7 +206,9 @@ export function TripRouteMap({
       // 整体模式：每天一条路线，不同颜色
       return days
         .map((day, dayIndex) => {
-          const dayActivities = day.activities.filter((activity) => activity.coordinate)
+          const dayActivities = day.activities.filter((activity) => 
+            isValidCoordinate(activity.coordinate)
+          )
           if (dayActivities.length < 2) return null
 
           const color = DAY_COLORS[dayIndex % DAY_COLORS.length]
@@ -146,8 +232,18 @@ export function TripRouteMap({
   // 计算总距离（估算）
   const totalDistance = useMemo(() => {
     let distance = 0
+    const isValidCoordinate = (coord: Coordinate | undefined): coord is Coordinate => {
+      return !!coord && 
+             typeof coord.lat === 'number' && 
+             typeof coord.lng === 'number' &&
+             !isNaN(coord.lat) && 
+             !isNaN(coord.lng)
+    }
+    
     days.forEach((day) => {
-      const dayActivities = day.activities.filter((activity) => activity.coordinate)
+      const dayActivities = day.activities.filter((activity) => 
+        isValidCoordinate(activity.coordinate)
+      )
       for (let i = 0; i < dayActivities.length - 1; i++) {
         const from = dayActivities[i].coordinate!
         const to = dayActivities[i + 1].coordinate!
@@ -168,7 +264,34 @@ export function TripRouteMap({
     return distance
   }, [days])
 
-  if (allLocations.length === 0) {
+  // 检查是否有有效的坐标数据
+  const hasValidCoordinates = useMemo(() => {
+    // 检查 days 中是否有坐标
+    const hasDaysCoordinates = days.some((day) =>
+      day.activities.some((activity) => {
+        const coord = activity.coordinate
+        return coord && 
+               typeof coord.lat === 'number' && 
+               typeof coord.lng === 'number' &&
+               !isNaN(coord.lat) && 
+               !isNaN(coord.lng)
+      })
+    )
+    
+    // 检查 allLocations 中是否有坐标
+    const hasAllLocationsCoordinates = allLocations.some((location) => {
+      const coord = location.coordinate
+      return coord && 
+             typeof coord.lat === 'number' && 
+             typeof coord.lng === 'number' &&
+             !isNaN(coord.lat) && 
+             !isNaN(coord.lng)
+    })
+    
+    return hasDaysCoordinates || hasAllLocationsCoordinates
+  }, [days, allLocations])
+
+  if (!hasValidCoordinates) {
     return (
       <Card className={className}>
         <CardHeader>
@@ -177,7 +300,13 @@ export function TripRouteMap({
         </CardHeader>
         <CardContent>
           <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
-            <p className="text-muted-foreground">无法获取地点坐标，请稍后再试</p>
+            <div className="text-center">
+              <MapPin className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-50" />
+              <p className="text-muted-foreground">无法获取地点坐标</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                请确保行程活动包含有效的地点坐标信息
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

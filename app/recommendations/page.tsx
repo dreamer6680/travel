@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Heart, Search, Star, MapPin, Filter, Loader2 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { recommendationAPI } from "@/lib/api"
+import Image from "next/image"
 
 // 定义景点类型
 interface Attraction {
@@ -271,9 +272,11 @@ function AttractionCard({
     <Card className="overflow-hidden hover:shadow-lg transition-shadow">
       <div className="h-48 bg-muted flex items-center justify-center">
         {attraction.imageUrl ? (
-          <img
+          <Image
             src={attraction.imageUrl || "/placeholder.svg"}
             alt={attraction.name}
+            width={100}
+            height={100}
             className="h-full w-full object-cover"
           />
         ) : (

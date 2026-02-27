@@ -86,6 +86,20 @@ export class TripGenerationWorkflowService {
       console.log("🗺️  步骤 3: 路线规划...")
       let routePlan
       try {
+        // 调试：检查第一个景点的数据结构
+        if (matchedAttractions.length > 0) {
+          const first = matchedAttractions[0]
+          console.log("🔍 第一个景点数据结构:", {
+            id: first.attraction_id,
+            name: first.name,
+            latitude: first.latitude,
+            longitude: first.longitude,
+            coordinate_type: first.coordinate_type,
+            hasMetadataCoordinate: !!first.metadata?.coordinate,
+            metadataCoordinate: first.metadata?.coordinate,
+          })
+        }
+        
         const attractionsForRoute: AttractionWithLocation[] = matchedAttractions
           .slice(0, 10) // 限制数量，避免 API 调用过多
           .map((attr) => {
@@ -107,13 +121,19 @@ export class TripGenerationWorkflowService {
             // 降级：从 metadata 中获取坐标
             else if (attr.metadata?.coordinate) {
               const coord = attr.metadata.coordinate
-              if (coord.latitude != null && coord.longitude != null) {
+              // 检查坐标对象的结构
+              const lat = coord.latitude ?? coord.lat
+              const lng = coord.longitude ?? coord.lng
+              
+              if (lat != null && lng != null) {
                 attraction.coordinate = {
-                  latitude: Number(coord.latitude),
-                  longitude: Number(coord.longitude),
-                  coordinateType: coord.coordinateType || 'BD09',
+                  latitude: Number(lat),
+                  longitude: Number(lng),
+                  coordinateType: coord.coordinateType || coord.coordinate_type || 'BD09',
                 }
-                console.log(`✅ 使用 metadata 坐标: ${attr.name} (${coord.latitude}, ${coord.longitude})`)
+                console.log(`✅ 使用 metadata 坐标: ${attr.name} (${lat}, ${lng})`)
+              } else {
+                console.warn(`⚠️  metadata.coordinate 格式不正确:`, JSON.stringify(coord))
               }
             }
             
