@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { DatePickerWithRange } from "@/components/date-range-picker"
 import { Slider } from "@/components/ui/slider"
 import { useRouter } from "next/navigation"
-import { Loader2 } from "lucide-react"
+import { Loader2, Sparkles } from "lucide-react"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -105,14 +105,16 @@ export default function CreateTripPage() {
   return (
     <div className="w-full py-8">
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">创建您的旅行计划</h1>
-        <p className="text-muted-foreground mb-8">填写以下信息，我们将为您生成个性化的旅行计划</p>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">创建您的旅行计划</h1>
+          <p className="text-muted-foreground">填写以下信息，我们将为您生成个性化的旅行计划</p>
+        </div>
 
         <form onSubmit={handleSubmit}>
-          <Card>
+          <Card className="border-2">
             <CardHeader>
-              <CardTitle>旅行信息</CardTitle>
-              <CardDescription>请提供您的旅行基本信息</CardDescription>
+              <CardTitle className="text-2xl">旅行信息</CardTitle>
+              <CardDescription>请提供您的旅行基本信息，AI 将为您生成完美的行程</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
@@ -160,11 +162,16 @@ export default function CreateTripPage() {
 
               <div className="space-y-2">
                 <Label>预算范围 (人民币/人)</Label>
-                <div className="pt-2">
-                  <Slider defaultValue={[5000]} max={20000} step={500} onValueChange={(value) => setBudget(value[0])} />
-                  <div className="flex justify-between mt-2">
+                <div className="pt-2 space-y-3">
+                  <div className="px-2">
+                    <Slider defaultValue={[5000]} max={20000} step={500} onValueChange={(value) => setBudget(value[0])} />
+                  </div>
+                  <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">¥1,000</span>
-                    <span className="text-sm font-medium">¥{budget.toLocaleString()}</span>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-primary">¥{budget.toLocaleString()}</div>
+                      <div className="text-xs text-muted-foreground">每人预算</div>
+                    </div>
                     <span className="text-sm text-muted-foreground">¥20,000</span>
                   </div>
                 </div>
@@ -200,17 +207,25 @@ export default function CreateTripPage() {
                 />
               </div>
             </CardContent>
-            <CardFooter>
-              <Button type="submit" className="w-full" disabled={isGenerating}>
+            <CardFooter className="flex flex-col gap-4">
+              <Button type="submit" className="w-full" size="lg" disabled={isGenerating}>
                 {isGenerating ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     正在生成行程...
                   </>
                 ) : (
-                  "生成行程"
+                  <>
+                    生成行程
+                    <Sparkles className="ml-2 h-4 w-4" />
+                  </>
                 )}
               </Button>
+              {isGenerating && (
+                <p className="text-sm text-muted-foreground text-center">
+                  AI 正在为您规划最佳行程，这可能需要几秒钟...
+                </p>
+              )}
             </CardFooter>
           </Card>
         </form>

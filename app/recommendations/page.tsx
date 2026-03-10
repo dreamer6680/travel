@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Heart, Search, Star, MapPin, Filter, Loader2 } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { recommendationAPI } from "@/lib/api"
 import Image from "next/image"
@@ -176,9 +177,24 @@ export default function RecommendationsPage() {
 
           <TabsContent value="popular">
             {isLoadingPopular ? (
-              <div className="flex justify-center items-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <span className="ml-2">加载中...</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <Card key={i} className="overflow-hidden">
+                    <Skeleton className="h-48 w-full" />
+                    <CardHeader className="pb-2">
+                      <Skeleton className="h-5 w-3/4 mb-2" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <Skeleton className="h-5 w-20" />
+                        <Skeleton className="h-4 w-12" />
+                      </div>
+                      <Skeleton className="h-12 w-full mb-4" />
+                      <Skeleton className="h-9 w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             ) : filteredPopular.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -204,9 +220,24 @@ export default function RecommendationsPage() {
               <p className="text-muted-foreground">基于 AI 评分发现的隐藏景点</p>
             </div>
             {isLoadingHidden ? (
-              <div className="flex justify-center items-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <span className="ml-2">加载中...</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <Card key={i} className="overflow-hidden">
+                    <Skeleton className="h-48 w-full" />
+                    <CardHeader className="pb-2">
+                      <Skeleton className="h-5 w-3/4 mb-2" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <Skeleton className="h-5 w-20" />
+                        <Skeleton className="h-4 w-12" />
+                      </div>
+                      <Skeleton className="h-12 w-full mb-4" />
+                      <Skeleton className="h-9 w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             ) : filteredHidden.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -232,9 +263,24 @@ export default function RecommendationsPage() {
               <p className="text-muted-foreground">根据您的偏好和历史记录推荐</p>
             </div>
             {isLoadingAI ? (
-              <div className="flex justify-center items-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <span className="ml-2">加载中...</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <Card key={i} className="overflow-hidden">
+                    <Skeleton className="h-48 w-full" />
+                    <CardHeader className="pb-2">
+                      <Skeleton className="h-5 w-3/4 mb-2" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <Skeleton className="h-5 w-20" />
+                        <Skeleton className="h-4 w-12" />
+                      </div>
+                      <Skeleton className="h-12 w-full mb-4" />
+                      <Skeleton className="h-9 w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             ) : filteredAI.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -269,47 +315,65 @@ function AttractionCard({
   onToggleFavorite: () => void
 }) {
   return (
-    <Card className="overflow-hidden hover:shadow-lg transition-shadow">
-      <div className="h-48 bg-muted flex items-center justify-center">
+    <Card className="overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1 group border-2 hover:border-primary/50">
+      <div className="relative h-48 bg-gradient-to-br from-muted to-muted/50 overflow-hidden">
         {attraction.imageUrl ? (
           <Image
             src={attraction.imageUrl || "/placeholder.svg"}
             alt={attraction.name}
-            width={100}
-            height={100}
-            className="h-full w-full object-cover"
+            width={400}
+            height={200}
+            className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-300"
           />
         ) : (
-          <MapPin className="h-12 w-12 text-muted-foreground" />
+          <div className="h-full w-full flex items-center justify-center">
+            <MapPin className="h-16 w-16 text-muted-foreground group-hover:text-primary transition-colors" />
+          </div>
         )}
+        <div className="absolute top-2 right-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleFavorite}
+            className="shrink-0 bg-background/80 backdrop-blur-sm hover:bg-background/90"
+          >
+            <Heart
+              className={`h-4 w-4 transition-all ${
+                isFavorite ? "fill-red-500 text-red-500 scale-110" : "hover:scale-110"
+              }`}
+            />
+          </Button>
+        </div>
+        <div className="absolute bottom-2 left-2 right-2">
+          <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded-md">
+            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+            <span className="text-sm font-medium">{attraction.rating}</span>
+            <span className="text-xs text-muted-foreground">·</span>
+            <span className="text-xs text-muted-foreground">{attraction.likes} 人喜欢</span>
+          </div>
+        </div>
       </div>
       <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <CardTitle className="text-lg">{attraction.name}</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-lg group-hover:text-primary transition-colors line-clamp-1">
+              {attraction.name}
+            </CardTitle>
             <CardDescription className="flex items-center gap-1 mt-1">
-              <MapPin className="h-3 w-3" />
-              {attraction.location}
+              <MapPin className="h-3 w-3 shrink-0" />
+              <span className="truncate">{attraction.location}</span>
             </CardDescription>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" onClick={onToggleFavorite} className="shrink-0">
-              <Heart className={`h-4 w-4 ${isFavorite ? "fill-red-500 text-red-500" : ""}`} />
-            </Button>
-            <span className="text-sm font-medium">{attraction.likes}</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="flex items-center justify-between mb-2">
-          <Badge variant="outline">{attraction.type}</Badge>
-          <div className="flex items-center gap-1">
-            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-            <span className="text-sm font-medium">{attraction.rating}</span>
-          </div>
+          <Badge variant="outline" className="group-hover:border-primary/50 transition-colors">
+            {attraction.type}
+          </Badge>
         </div>
-        <p className="text-sm text-muted-foreground">{attraction.description}</p>
-        <Button className="w-full mt-4" variant="outline">
+        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{attraction.description}</p>
+        <Button className="w-full" variant="outline" size="sm">
           查看详情
         </Button>
       </CardContent>

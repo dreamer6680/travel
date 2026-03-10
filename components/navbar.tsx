@@ -127,23 +127,47 @@ export default function Navbar() {
 
       {/* Mobile Menu */}
       {isMenuOpen && (
-        <div className="md:hidden border-t p-4 space-y-4 bg-background">
-          <Link href="/trip/create" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+        <div className="md:hidden border-t p-4 space-y-2 bg-background animate-in slide-in-from-top duration-300">
+          <Link
+            href="/trip/create"
+            className="block py-2 px-3 rounded-md hover:bg-accent hover:text-primary transition-colors"
+            onClick={() => setIsMenuOpen(false)}
+          >
             创建行程
           </Link>
-          <Link href="/recommendations" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+          <Link
+            href="/recommendations"
+            className="block py-2 px-3 rounded-md hover:bg-accent hover:text-primary transition-colors"
+            onClick={() => setIsMenuOpen(false)}
+          >
             推荐景点
           </Link>
-          <Link href="/trips" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+          <Link
+            href="/trips"
+            className="block py-2 px-3 rounded-md hover:bg-accent hover:text-primary transition-colors"
+            onClick={() => setIsMenuOpen(false)}
+          >
             我的行程
           </Link>
-          <Link href="/chat" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+          <Link
+            href="/chat"
+            className="block py-2 px-3 rounded-md hover:bg-accent hover:text-primary transition-colors"
+            onClick={() => setIsMenuOpen(false)}
+          >
             AI 助手
           </Link>
-          <Link href="/blogs" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+          <Link
+            href="/blogs"
+            className="block py-2 px-3 rounded-md hover:bg-accent hover:text-primary transition-colors"
+            onClick={() => setIsMenuOpen(false)}
+          >
             游记分享
           </Link>
-          <Link href="/admin" className="block py-2 hover:text-primary" onClick={() => setIsMenuOpen(false)}>
+          <Link
+            href="/admin"
+            className="block py-2 px-3 rounded-md hover:bg-accent hover:text-primary transition-colors"
+            onClick={() => setIsMenuOpen(false)}
+          >
             后台管理
           </Link>
           <div className="pt-4 border-t flex flex-col gap-2">

@@ -465,10 +465,12 @@ function DayActivity({
   const getIcon = () => {
     switch (type) {
       case "景点":
+      case "景点/观光":
         return <MapPin className="h-5 w-5" />
       case "餐厅":
         return <Utensils className="h-5 w-5" />
       case "购物":
+      case "购物/观光":
         return <MapPin className="h-5 w-5" />
       default:
         return <MapPin className="h-5 w-5" />
@@ -476,22 +478,24 @@ function DayActivity({
   }
 
   return (
-    <div className="flex gap-4">
-      <div className="min-w-[100px] text-sm text-muted-foreground">
+    <div className="flex gap-4 group hover:bg-accent/50 p-3 rounded-lg transition-colors">
+      <div className="min-w-[100px] text-sm text-muted-foreground flex-shrink-0">
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4" />
-          <span>{time}</span>
+          <span className="font-medium">{time}</span>
         </div>
       </div>
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="p-1.5 rounded-full bg-primary/10 text-primary">{getIcon()}</div>
-          <h4 className="font-medium">{title}</h4>
-          <Badge variant="outline" className="ml-auto">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="p-1.5 rounded-full bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
+            {getIcon()}
+          </div>
+          <h4 className="font-medium group-hover:text-primary transition-colors">{title}</h4>
+          <Badge variant="outline" className="ml-auto group-hover:border-primary/50 transition-colors">
             {type}
           </Badge>
         </div>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
       </div>
     </div>
   )
