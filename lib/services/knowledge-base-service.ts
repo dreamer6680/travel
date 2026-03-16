@@ -1,5 +1,5 @@
 import { query } from "../db-pg"
-import { generateEmbedding, buildAttractionText, buildUserPreferenceText } from "./vector-service"
+import { generateEmbedding, buildAttractionText, buildUserPreferenceText, buildHotelText } from "./vector-service"
 
 /**
  * 确保向量索引存在（在首次插入数据后调用）
@@ -536,4 +536,192 @@ export async function saveUserPreferenceVector(
     // 不抛出错误，避免影响主流程
     // 偏好向量存储失败不应该阻止偏好设置的更新
   }
+}
+
+// ---------- 酒店向量 ----------
+
+/** 房型简要（与携程 roomInfo 一致） */
+export interface HotelRoomInfo {
+  roomName: string
+  roomId?: string
+  price?: number
+  priceDisplay?: string
+  deleteDisplayPrice?: string
+  bedSummary?: string
+}
+
+export interface Hotel {
+  hotelId: string
+  name: string
+  location: string
+  star: number
+  starType?: number
+  description?: string
+  imageUrl?: string
+  score?: string
+  commentNumber?: string
+  priceDisplay?: string
+  priceYuan?: number
+  address?: string
+  positionDesc?: string
+  zoneNames?: string[]
+  latitude?: number
+  longitude?: number
+  coordinateType?: string
+  roomInfo?: HotelRoomInfo[]
+}
+
+export interface HotelVectorRow {
+  id: number
+  hotel_id: string
+  name: string
+  location: string | null
+  star: number
+  rating: number | null
+  price_display: string | null
+  price_yuan: number | null
+  address?: string | null
+  position_desc?: string | null
+  zone_names?: unknown
+  latitude?: number | null
+  longitude?: number | null
+  coordinate_type?: string | null
+  rooms?: unknown
+}
+
+/** 解析价格字符串 "¥606" -> 606 */
+function parsePriceYuan(s: string): number | null {
+  if (!s || typeof s !== "string") return null
+  const num = parseFloat(s.replace(/[¥¥,\s]/g, ""))
+  return isNaN(num) ? null : num
+}
+
+/** 将酒店添加到向量库 */
+export async function addHotelToVectorDB(hotel: Hotel): Promise<void> {
+  const text = buildHotelText({
+    name: hotel.name,
+    location: hotel.location,
+    star: hotel.star,
+    description: hotel.description,
+    score: hotel.score,
+    commentNumber: hotel.commentNumber,
+    priceDisplay: hotel.priceDisplay,
+    address: hotel.address,
+    positionDesc: hotel.positionDesc,
+    zoneNames: hotel.zoneNames,
+    roomInfo: hotel.roomInfo,
+  })
+  const embedding = await generateEmbedding(text)
+  const metadata = {
+    hotelId: hotel.hotelId,
+    location: hotel.location,
+    star: hotel.star,
+    score: hotel.score,
+    priceYuan: hotel.priceYuan,
+    address: hotel.address,
+    latitude: hotel.latitude,
+    longitude: hotel.longitude,
+  }
+
+  const existing = await query<{ id: number }>(
+    "SELECT id FROM hotel_vectors WHERE hotel_id = $1",
+    [hotel.hotelId]
+  )
+  const rating = hotel.score ? parseFloat(hotel.score) : null
+  const priceYuan = hotel.priceYuan ?? (hotel.priceDisplay ? parsePriceYuan(hotel.priceDisplay) : null)
+  const zoneNamesJson = hotel.zoneNames?.length ? JSON.stringify(hotel.zoneNames) : null
+  const roomsJson = hotel.roomInfo?.length ? JSON.stringify(hotel.roomInfo) : null
+
+  if (existing.rows.length > 0) {
+    await query(
+      `UPDATE hotel_vectors SET name = $1, location = $2, star = $3, star_type = $4, type = $5,
+       description = $6, image_url = $7, rating = $8, comment_number = $9, price_display = $10, price_yuan = $11,
+       address = $12, position_desc = $13, zone_names = $14::jsonb, latitude = $15, longitude = $16, coordinate_type = $17, rooms = $18::jsonb,
+       embedding = $19::vector, metadata = $20::jsonb, updated_at = CURRENT_TIMESTAMP WHERE hotel_id = $21`,
+      [
+        hotel.name,
+        hotel.location,
+        hotel.star,
+        hotel.starType ?? 0,
+        "酒店",
+        hotel.description ?? null,
+        hotel.imageUrl ?? null,
+        rating,
+        hotel.commentNumber ?? null,
+        hotel.priceDisplay ?? null,
+        priceYuan,
+        hotel.address ?? null,
+        hotel.positionDesc ?? null,
+        zoneNamesJson,
+        hotel.latitude ?? null,
+        hotel.longitude ?? null,
+        hotel.coordinateType ?? null,
+        roomsJson,
+        JSON.stringify(embedding),
+        JSON.stringify(metadata),
+        hotel.hotelId,
+      ]
+    )
+  } else {
+    await query(
+      `INSERT INTO hotel_vectors (hotel_id, name, location, star, star_type, type, description, image_url, rating, comment_number, price_display, price_yuan, address, position_desc, zone_names, latitude, longitude, coordinate_type, rooms, embedding, metadata)
+       VALUES ($1, $2, $3, $4, $5, '酒店', $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $18::jsonb, $19::vector, $20::jsonb)`,
+      [
+        hotel.hotelId,
+        hotel.name,
+        hotel.location,
+        hotel.star,
+        hotel.starType ?? 0,
+        hotel.description ?? null,
+        hotel.imageUrl ?? null,
+        rating,
+        hotel.commentNumber ?? null,
+        hotel.priceDisplay ?? null,
+        priceYuan,
+        hotel.address ?? null,
+        hotel.positionDesc ?? null,
+        zoneNamesJson,
+        hotel.latitude ?? null,
+        hotel.longitude ?? null,
+        hotel.coordinateType ?? null,
+        roomsJson,
+        JSON.stringify(embedding),
+        JSON.stringify(metadata),
+      ]
+    )
+  }
+}
+
+/** 批量添加酒店到向量库 */
+export async function addHotelsBatch(hotels: Hotel[], batchSize = 5): Promise<void> {
+  for (let i = 0; i < hotels.length; i += batchSize) {
+    const batch = hotels.slice(i, i + batchSize)
+    await Promise.all(batch.map((h) => addHotelToVectorDB(h)))
+    if (i + batchSize < hotels.length) {
+      await new Promise((r) => setTimeout(r, 300))
+    }
+  }
+}
+
+/** 按目的地（城市名）查询酒店，用于行程住宿推荐 */
+export async function searchHotelsByLocation(
+  locationKeyword: string,
+  limit = 10
+): Promise<Array<{ name: string; location: string | null; star: number; rating: number | null; priceDisplay: string | null; priceYuan: number | null }>> {
+  const result = await query<HotelVectorRow>(
+    `SELECT id, hotel_id, name, location, star, rating, price_display, price_yuan
+     FROM hotel_vectors
+     WHERE location ILIKE $1
+     ORDER BY rating DESC NULLS LAST, star DESC
+     LIMIT $2`,
+    [`%${locationKeyword}%`, limit]
+  )
+  return result.rows.map((r) => ({
+    name: r.name,
+    location: r.location,
+    star: r.star,
+    rating: r.rating != null ? Number(r.rating) : null,
+    priceDisplay: r.price_display,
+    priceYuan: r.price_yuan != null ? Number(r.price_yuan) : null,
+  }))
 }

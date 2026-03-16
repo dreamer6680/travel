@@ -2,10 +2,12 @@
  * 行程地点增强服务
  * 从行程活动中提取地点信息并获取坐标
  * 优先从景点数据库中匹配，降级使用地理编码 API
+ * 支持高德公共交通路线规划（按天、按顺序规划相邻景点间公交方案）
  */
 
 import { extractLocationsFromActivities, geocodeAddresses, LocationInfo } from "./location-service"
 import { query } from "../db-pg"
+import { getTransitRoute, type TransitRouteInfo } from "./amap-transit-service"
 
 export interface ActivityWithLocation {
   time: string
@@ -20,10 +22,21 @@ export interface ActivityWithLocation {
   locationInfo?: LocationInfo
 }
 
+/** 相邻两活动之间的公交路线（高德公共交通规划结果） */
+export interface TransitSegmentBetweenActivities {
+  fromTitle: string
+  toTitle: string
+  fromIndex: number
+  toIndex: number
+  route: TransitRouteInfo
+}
+
 export interface DayWithLocations {
   day: number
   title: string
   activities: ActivityWithLocation[]
+  /** 当天相邻有坐标活动之间的公交路线规划结果（高德 API） */
+  transitSegments?: TransitSegmentBetweenActivities[]
 }
 
 export interface TripWithLocations {
@@ -186,10 +199,10 @@ export async function enhanceTripWithLocations(
       activities: day.activities.map((activity) => {
         const activityKey = `${activity.title}-${activity.type}`
         const locationName = locationMap.get(activityKey) || activity.location
-        
+
         // 优先从数据库匹配的坐标（通过活动标题）
         let locationInfo = dbLocationMap.get(activity.title)
-        
+
         // 如果没有，尝试通过 location 字段匹配
         if (!locationInfo && locationName) {
           // 先尝试从数据库匹配 locationName
@@ -199,7 +212,7 @@ export async function enhanceTripWithLocations(
               break
             }
           }
-          
+
           // 如果还是没有，使用地理编码的结果
           if (!locationInfo) {
             locationInfo = locationInfoMap.get(locationName)
@@ -215,7 +228,38 @@ export async function enhanceTripWithLocations(
       }),
     }))
 
-    // 6. 收集所有有效的地点信息
+    // 6. 按天调用高德公共交通路线规划（相邻有坐标的活动之间）
+    const city = trip.destination || ""
+    for (const day of enhancedDays) {
+      const withCoord = day.activities
+        .map((a, idx) => ({ activity: a, index: idx }))
+        .filter(({ activity }) => activity.coordinate?.lat != null && activity.coordinate?.lng != null)
+      const segments: TransitSegmentBetweenActivities[] = []
+      for (let i = 0; i < withCoord.length - 1; i++) {
+        const from = withCoord[i].activity.coordinate!
+        const to = withCoord[i + 1].activity.coordinate!
+        const route = await getTransitRoute(
+          { lng: from.lng, lat: from.lat },
+          { lng: to.lng, lat: to.lat },
+          city
+        )
+        if (route) {
+          segments.push({
+            fromTitle: withCoord[i].activity.title,
+            toTitle: withCoord[i + 1].activity.title,
+            fromIndex: withCoord[i].index,
+            toIndex: withCoord[i + 1].index,
+            route,
+          })
+        }
+        if (i < withCoord.length - 2) {
+          await new Promise((r) => setTimeout(r, 200))
+        }
+      }
+      day.transitSegments = segments.length > 0 ? segments : undefined
+    }
+
+    // 7. 收集所有有效的地点信息
     const allLocations = Array.from(locationInfoMap.values())
 
     return {

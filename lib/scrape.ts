@@ -123,7 +123,7 @@ async function fetchPoiData(page: number, districtId: number = 1, coordinate?: {
     // 可以配置爬取的参数
     const startPage = 1
     const endPage = 10 // 可以调整爬取的页数
-    const districtId = 2 // 地区ID：1=全国，2=上海，110000=北京等
+    const districtId = 110000 // 地区ID：1=全国，2=上海，110000=北京等
     // 上海的坐标（WGS84坐标系）
     const coordinate = {
       latitude: 31.2304,  // 上海纬度

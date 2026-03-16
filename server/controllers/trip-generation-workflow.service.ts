@@ -2,6 +2,7 @@ import { enhanceUserInput, generateTripItinerary, EnhancedUserInput } from "@/li
 import { PromptEnhancementService } from "@/lib/services/prompt-enhancement-service"
 import { VectorSearchService } from "./vector-search.service"
 import { planRoute, AttractionWithLocation } from "@/lib/services/route-planning-service"
+import { searchHotelsByLocation } from "@/lib/services/knowledge-base-service"
 
 export interface TripGenerationInput {
   destination?: string
@@ -80,6 +81,17 @@ export class TripGenerationWorkflowService {
 
       if (matchedAttractions.length === 0) {
         throw new Error("未找到匹配的景点，请调整搜索条件")
+      }
+
+      // 步骤 2.5: 按目的地匹配推荐酒店（用于住宿推荐）
+      let matchedHotels: Array<{ name: string; location: string | null; star: number; rating: number | null; priceDisplay: string | null; priceYuan: number | null }> = []
+      try {
+        matchedHotels = await searchHotelsByLocation(enhancedInput.destination, 8)
+        if (matchedHotels.length > 0) {
+          console.log(`✅ 匹配到 ${matchedHotels.length} 家推荐酒店`)
+        }
+      } catch (e) {
+        console.warn("⚠️  查询推荐酒店失败，继续生成行程:", e)
       }
 
       // 步骤 3: 路线规划（可选）
@@ -175,7 +187,8 @@ export class TripGenerationWorkflowService {
               distances: routePlan.distances,
               durations: routePlan.durations,
             }
-          : undefined
+          : undefined,
+        matchedHotels.length > 0 ? matchedHotels : undefined
       )
 
       console.log("✅ 行程生成完成")
@@ -238,7 +251,19 @@ export class TripGenerationWorkflowService {
         rating: attr.rating || 0,
       }))
 
-      const trip = await generateTripItinerary(enhancedInput, selectedAttractions)
+      let matchedHotels: Array<{ name: string; location: string | null; star: number; rating: number | null; priceDisplay: string | null; priceYuan: number | null }> = []
+      try {
+        matchedHotels = await searchHotelsByLocation(enhancedInput.destination, 8)
+      } catch {
+        // ignore
+      }
+
+      const trip = await generateTripItinerary(
+        enhancedInput,
+        selectedAttractions,
+        undefined,
+        matchedHotels.length > 0 ? matchedHotels : undefined
+      )
 
       return {
         trip: {

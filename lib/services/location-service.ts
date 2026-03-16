@@ -140,6 +140,9 @@ export function extractLocationFromTitle(title: string): string | null {
 /**
  * 使用 LLM 提取地点（降级方案）
  */
+const OLLAMA_API_URL = process.env.OLLAMA_API_URL || "http://localhost:11434"
+const OLLAMA_CHAT_MODEL = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:7b"
+
 export async function extractLocationWithLLM(
   activity: {
     title: string
@@ -148,9 +151,6 @@ export async function extractLocationWithLLM(
   }
 ): Promise<string | null> {
   try {
-    // 如果设置了禁用向量工作流，使用 Ollama
-    const useOllama = process.env.USE_VECTOR_WORKFLOW === "false"
-
     const prompt = `从以下活动信息中提取地点名称。只返回地点名称，不要其他内容。
 
 活动标题：${activity.title}
@@ -159,53 +159,20 @@ export async function extractLocationWithLLM(
 
 请提取地点名称：`
 
-    if (useOllama) {
-      const response = await fetch("http://localhost:11434/api/generate", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "gemma3",
-          prompt: prompt,
-          stream: false,
-        }),
-      })
+    const response = await fetch(`${OLLAMA_API_URL}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: OLLAMA_CHAT_MODEL,
+        prompt,
+        stream: false,
+      }),
+    })
 
-      const data = await response.json()
-      const location = data.response?.trim() || null
-      return location && location.length > 0 && location.length < 50 ? location : null
-    } else {
-      // 使用 OpenAI
-      try {
-        // @ts-ignore
-        const OpenAI = (await import("openai")).default
-        const apiKey = process.env.OPENAI_API_KEY
-        if (!apiKey) {
-          return null
-        }
-        const openai = new OpenAI({ apiKey })
-
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "你是一个地点提取助手。只返回地点名称，不要其他内容。",
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 50,
-        })
-
-        const location = response.choices[0].message.content?.trim() || null
-        return location && location.length > 0 && location.length < 50 ? location : null
-      } catch (openaiError) {
-        console.error("OpenAI 提取地点失败:", openaiError)
-        return null
-      }
-    }
+    if (!response.ok) return null
+    const data = await response.json()
+    const location = data.response?.trim() || null
+    return location && location.length > 0 && location.length < 50 ? location : null
   } catch (error) {
     console.error("LLM 提取地点失败:", error)
     return null

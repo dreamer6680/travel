@@ -18,11 +18,11 @@ async function initDatabase() {
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'public' 
-      AND table_name IN ('attraction_vectors', 'user_preference_vectors')
+      AND table_name IN ('attraction_vectors', 'user_preference_vectors', 'hotel_vectors')
     `)
 
-    if (tablesCheck.rows.length === 2) {
-      console.log("✅ 表已存在，跳过创建")
+    if (tablesCheck.rows.length === 3) {
+      console.log("✅ 表已存在（含 hotel_vectors），跳过创建")
     } else {
       console.log("📝 创建表结构...")
       
@@ -113,7 +113,67 @@ async function initDatabase() {
           EXECUTE FUNCTION update_updated_at_column()
         `)
         console.log("✅ 创建触发器: user_preference_vectors")
-        
+
+        // 8. 酒店向量表（含坐标、地址、房型）
+        await query(`
+          CREATE TABLE IF NOT EXISTS hotel_vectors (
+            id SERIAL PRIMARY KEY,
+            hotel_id VARCHAR(64) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            location VARCHAR(255),
+            star INTEGER DEFAULT 0,
+            star_type INTEGER DEFAULT 0,
+            type VARCHAR(50) DEFAULT '酒店',
+            description TEXT,
+            image_url VARCHAR(500),
+            rating DECIMAL(3, 1),
+            comment_number VARCHAR(100),
+            price_display VARCHAR(50),
+            price_yuan DECIMAL(10, 2),
+            address VARCHAR(500),
+            position_desc VARCHAR(500),
+            zone_names JSONB,
+            latitude DECIMAL(10, 7),
+            longitude DECIMAL(10, 7),
+            coordinate_type VARCHAR(20) DEFAULT 'BD09',
+            rooms JSONB,
+            embedding vector,
+            metadata JSONB DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        await query(`CREATE INDEX IF NOT EXISTS hotel_vectors_location_idx ON hotel_vectors(location)`)
+        await query(`CREATE INDEX IF NOT EXISTS hotel_vectors_hotel_id_idx ON hotel_vectors(hotel_id)`)
+        await query(`CREATE INDEX IF NOT EXISTS hotel_vectors_rating_idx ON hotel_vectors(rating DESC)`)
+        await query(`CREATE INDEX IF NOT EXISTS hotel_vectors_lat_lng_idx ON hotel_vectors(latitude, longitude)`)
+        await query(`
+          DROP TRIGGER IF EXISTS update_hotel_vectors_updated_at ON hotel_vectors;
+          CREATE TRIGGER update_hotel_vectors_updated_at BEFORE UPDATE ON hotel_vectors FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+        `)
+        console.log("✅ 创建表: hotel_vectors")
+
+        // 为已存在的 hotel_vectors 表补充新列（兼容旧库）
+        const hotelNewColumns = [
+          "ADD COLUMN IF NOT EXISTS address VARCHAR(500)",
+          "ADD COLUMN IF NOT EXISTS position_desc VARCHAR(500)",
+          "ADD COLUMN IF NOT EXISTS zone_names JSONB",
+          "ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 7)",
+          "ADD COLUMN IF NOT EXISTS longitude DECIMAL(10, 7)",
+          "ADD COLUMN IF NOT EXISTS coordinate_type VARCHAR(20) DEFAULT 'BD09'",
+          "ADD COLUMN IF NOT EXISTS rooms JSONB",
+        ]
+        for (const col of hotelNewColumns) {
+          try {
+            await query(`ALTER TABLE hotel_vectors ${col}`)
+          } catch (e: any) {
+            if (e?.code !== "42701") console.log(`ℹ️  hotel_vectors ${col}: ${e?.message}`)
+          }
+        }
+        try {
+          await query(`CREATE INDEX IF NOT EXISTS hotel_vectors_lat_lng_idx ON hotel_vectors(latitude, longitude)`)
+        } catch (_) {}
+
         console.log("✅ 表结构创建完成")
       } catch (error: any) {
         // 忽略已存在的错误

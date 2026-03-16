@@ -1,27 +1,35 @@
-// @ts-ignore - OpenAI 类型定义
-import OpenAI from "openai"
-
-// 默认模型
-const DEFAULT_MODEL = "gpt-4o-mini"
+// Agent 仅使用本地 Ollama，不再使用 OpenRouter/OpenAI
+const OLLAMA_API_URL = process.env.OLLAMA_API_URL || "http://localhost:11434"
+const OLLAMA_CHAT_MODEL = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:7b"
 const DEFAULT_TEMPERATURE = 0.7
 
-// 延迟初始化 OpenAI 客户端
-let openaiInstance: OpenAI | null = null
-
-function getOpenAIClient(): OpenAI {
-  if (!openaiInstance) {
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) {
-      throw new Error(
-        "OPENAI_API_KEY 环境变量未设置。请在 .env.local 文件中添加：\n" +
-        "OPENAI_API_KEY=your-api-key-here"
-      )
-    }
-    openaiInstance = new OpenAI({
-      apiKey,
-    })
+async function ollamaChat(
+  systemContent: string,
+  userContent: string
+): Promise<string> {
+  const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_CHAT_MODEL,
+      messages: [
+        { role: "system", content: systemContent },
+        { role: "user", content: userContent },
+      ],
+      stream: false,
+      options: { temperature: DEFAULT_TEMPERATURE },
+    }),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Ollama 请求失败: ${response.status} ${text}`)
   }
-  return openaiInstance
+  const data = await response.json()
+  const content = data.message?.content
+  if (typeof content !== "string") {
+    throw new Error("Ollama 返回内容格式不正确")
+  }
+  return content
 }
 
 export interface EnhancedUserInput {
@@ -56,7 +64,6 @@ export async function enhanceUserInput(
   }
 ): Promise<EnhancedUserInput> {
   try {
-    const openai = getOpenAIClient()
     const prompt = `你是一位专业的旅行规划助手。请分析用户的旅行需求，完善和结构化以下信息：
 
 用户原始输入：
@@ -93,31 +100,17 @@ export async function enhanceUserInput(
 4. enhancedDescription 应该是一个完整的、结构化的描述，用于后续的向量搜索
 5. 只返回 JSON，不要包含其他文字说明`
 
-    const response = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是一位专业的旅行规划助手，擅长分析和完善用户的旅行需求。请始终返回有效的 JSON 格式。",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: DEFAULT_TEMPERATURE,
-      response_format: { type: "json_object" },
-    })
+    const content = await ollamaChat(
+      "你是一位专业的旅行规划助手，擅长分析和完善用户的旅行需求。请始终只返回有效的 JSON，不要包含 markdown 或说明文字。",
+      prompt
+    )
 
-    const content = response.choices[0].message.content
-    if (!content) {
-      throw new Error("OpenAI 返回空内容")
-    }
+    const cleanContent = content
+      .replace(/^```json\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim()
+    const enhanced = JSON.parse(cleanContent) as EnhancedUserInput
 
-    const enhanced = JSON.parse(content) as EnhancedUserInput
-
-    // 验证和补充必要字段
     if (!enhanced.destination && rawInput.destination) {
       enhanced.destination = rawInput.destination
     }
@@ -143,33 +136,11 @@ export async function enhanceUserInput(
     }
 
     return enhanced
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("完善用户输入失败:", error)
-    
-    // 检查是否是 API key 问题或配额错误
-    const isAPIKeyError = 
-      error?.status === 401 ||
-      error?.code === 'invalid_api_key' ||
-      error?.code === 'authentication_error' ||
-      error?.message?.includes('401') ||
-      error?.message?.includes('Incorrect API key') ||
-      error?.message?.includes('Invalid API key') ||
-      error?.message?.includes('authentication') ||
-      !process.env.OPENAI_API_KEY
-    
-    const isQuotaError = 
-      error?.status === 429 || 
-      error?.code === 'insufficient_quota' ||
-      error?.message?.includes('429') ||
-      error?.message?.includes('quota')
-    
-    if (isAPIKeyError) {
-      console.warn("⚠️  OpenAI API Key 无效或未设置，使用原始输入")
-    } else if (isQuotaError) {
-      console.warn("⚠️  OpenAI API 配额超限，使用原始输入")
+    if (error instanceof Error && (error.message.includes("ECONNREFUSED") || error.message.includes("Ollama"))) {
+      console.warn("⚠️  Ollama 不可用，使用原始输入")
     }
-    
-    // 降级方案：返回原始输入的结构化版本
     return {
       destination: rawInput.destination || "",
       startDate: rawInput.startDate || "",
@@ -202,25 +173,31 @@ export async function generateTripItinerary(
     optimizedOrder: number[]
     distances: number[]
     durations: number[]
-  }
+  },
+  matchedHotels?: Array<{
+    name: string
+    location: string | null
+    star: number
+    rating: number | null
+    priceDisplay: string | null
+    priceYuan: number | null
+  }>
 ): Promise<any> {
-  try {
-    const openai = getOpenAIClient()
-    const attractionsList = matchedAttractions
-      .map(
-        (attr, idx) =>
-          `${idx + 1}. ${attr.name} (${attr.type}) - ${attr.description} (评分: ${attr.rating})`
-      )
-      .join("\n")
+  const attractionsList = matchedAttractions
+    .map(
+      (attr, idx) =>
+        `${idx + 1}. ${attr.name} (${attr.type}) - ${attr.description} (评分: ${attr.rating})`
+    )
+    .join("\n")
 
-    const routeInfo = routePlan
-      ? `\n路线优化信息：
+  const routeInfo = routePlan
+    ? `\n路线优化信息：
 - 优化后的景点顺序: ${routePlan.optimizedOrder.join(" → ")}
 - 总距离: ${routePlan.distances.reduce((a, b) => a + b, 0).toFixed(2)} 公里
 - 总时间: ${routePlan.durations.reduce((a, b) => a + b, 0).toFixed(0)} 分钟`
-      : ""
+    : ""
 
-    const prompt = `你是一位专业的旅游行程设计师，请根据以下信息生成一份详细而实用的旅游行程规划。
+  const prompt = `你是一位专业的旅游行程设计师，请根据以下信息生成一份详细而实用的旅游行程规划。
 
 用户需求：
 - 目的地: ${enhancedInput.destination}
@@ -233,6 +210,7 @@ export async function generateTripItinerary(
 
 匹配的景点列表：
 ${attractionsList}${routeInfo}
+${matchedHotels && matchedHotels.length > 0 ? "\n推荐酒店列表（请将以下酒店放入 practicalInfo.accommodation，name 用酒店名，cost 用 priceYuan 或根据价格估算，icon 用 \"Hotel\"）：\n" + matchedHotels.map((h) => "- " + h.name + (h.location ? " (" + h.location + ")" : "") + " " + h.star + "星 评分" + (h.rating ?? "-") + " " + (h.priceDisplay ?? (h.priceYuan != null ? "¥" + h.priceYuan : ""))).join("\n") + "\n" : ""}
 
 请生成一份详细的行程规划，使用以下 JSON 格式：
 
@@ -285,84 +263,40 @@ ${attractionsList}${routeInfo}
 6. 活动类型要多样化
 7. 只返回 JSON，不要包含其他文字`
 
-    const response = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是一位专业的旅游行程设计师，擅长根据用户需求和景点信息生成详细实用的行程规划。请始终返回有效的 JSON 格式。",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: DEFAULT_TEMPERATURE,
-      response_format: { type: "json_object" },
+  const content = await ollamaChat(
+    "你是一位专业的旅游行程设计师，擅长根据用户需求和景点信息生成详细实用的行程规划。请始终只返回有效的 JSON，不要包含 markdown 或说明文字。",
+    prompt
+  )
+
+  const cleanContent = content
+    .replace(/^```json\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim()
+
+  const itinerary = JSON.parse(cleanContent)
+
+  // 若提供了推荐酒店且行程里住宿为空或较少，则用推荐酒店补全 practicalInfo.accommodation
+  if (matchedHotels && matchedHotels.length > 0 && itinerary.practicalInfo) {
+    const existing = itinerary.practicalInfo.accommodation ?? []
+    const fromHotels = matchedHotels.slice(0, 6).map((h) => {
+      const cost = h.priceYuan ?? (h.priceDisplay ? parseInt(String(h.priceDisplay).replace(/\D/g, ""), 10) : null)
+      return { name: h.name, cost: cost && !isNaN(cost) ? cost : 500, icon: "Hotel" as const }
     })
-
-    const content = response.choices[0].message.content
-    if (!content) {
-      throw new Error("OpenAI 返回空内容")
+    const seen = new Set((existing as Array<{ name: string }>).map((a) => a.name))
+    for (const h of fromHotels) {
+      if (!seen.has(h.name)) {
+        existing.push(h)
+        seen.add(h.name)
+      }
     }
+    itinerary.practicalInfo.accommodation = existing
+  }
 
-    // 清理 JSON（移除可能的 markdown 代码块）
-    const cleanContent = content
-      .replace(/^```json\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim()
-
-    const itinerary = JSON.parse(cleanContent)
-
-    // 添加元数据
-    return {
-      ...itinerary,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      matchedAttractionsCount: matchedAttractions.length,
-    }
-  } catch (error: any) {
-    console.error("生成行程失败:", error)
-    
-    // 检查是否是 API key 问题
-    const isAPIKeyError = 
-      error?.status === 401 ||
-      error?.code === 'invalid_api_key' ||
-      error?.code === 'authentication_error' ||
-      error?.message?.includes('401') ||
-      error?.message?.includes('Incorrect API key') ||
-      error?.message?.includes('Invalid API key') ||
-      error?.message?.includes('authentication') ||
-      !process.env.OPENAI_API_KEY
-    
-    // 检查是否是配额错误
-    const isQuotaError = 
-      error?.status === 429 || 
-      error?.code === 'insufficient_quota' ||
-      error?.message?.includes('429') ||
-      error?.message?.includes('quota')
-    
-    if (isAPIKeyError) {
-      throw new Error(
-        `OpenAI API Key 无效: ${error?.message || "请检查您的 API Key 配置"}\n` +
-        `建议：\n` +
-        `1. 检查 .env.local 中的 OPENAI_API_KEY 是否正确\n` +
-        `2. 或使用 Ollama 本地模型（设置 USE_VECTOR_WORKFLOW=false）`
-      )
-    }
-    
-    if (isQuotaError) {
-      throw new Error(
-        `OpenAI API 配额超限: ${error?.message || "请检查您的账户配额和账单设置"}\n` +
-        `建议：\n` +
-        `1. 检查 OpenAI 账户余额\n` +
-        `2. 升级账户计划\n` +
-        `3. 或使用 Ollama 本地模型（设置 USE_VECTOR_WORKFLOW=false）`
-      )
-    }
-    
-    throw error
+  return {
+    ...itinerary,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    matchedAttractionsCount: matchedAttractions.length,
   }
 }
 
