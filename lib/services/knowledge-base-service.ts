@@ -703,13 +703,24 @@ export async function addHotelsBatch(hotels: Hotel[], batchSize = 5): Promise<vo
   }
 }
 
-/** 按目的地（城市名）查询酒店，用于行程住宿推荐 */
+/** 按目的地（城市名）查询酒店，用于行程住宿推荐；含经纬度便于选最合适酒店 */
 export async function searchHotelsByLocation(
   locationKeyword: string,
   limit = 10
-): Promise<Array<{ name: string; location: string | null; star: number; rating: number | null; priceDisplay: string | null; priceYuan: number | null }>> {
+): Promise<
+  Array<{
+    name: string
+    location: string | null
+    star: number
+    rating: number | null
+    priceDisplay: string | null
+    priceYuan: number | null
+    latitude: number | null
+    longitude: number | null
+  }>
+> {
   const result = await query<HotelVectorRow>(
-    `SELECT id, hotel_id, name, location, star, rating, price_display, price_yuan
+    `SELECT id, hotel_id, name, location, star, rating, price_display, price_yuan, latitude, longitude
      FROM hotel_vectors
      WHERE location ILIKE $1
      ORDER BY rating DESC NULLS LAST, star DESC
@@ -723,5 +734,7 @@ export async function searchHotelsByLocation(
     rating: r.rating != null ? Number(r.rating) : null,
     priceDisplay: r.price_display,
     priceYuan: r.price_yuan != null ? Number(r.price_yuan) : null,
+    latitude: r.latitude != null ? Number(r.latitude) : null,
+    longitude: r.longitude != null ? Number(r.longitude) : null,
   }))
 }

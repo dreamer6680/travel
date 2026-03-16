@@ -20,6 +20,8 @@ interface Polyline {
   strokeColor?: string
   strokeWeight?: number
   strokeOpacity?: number
+  /** 实线 solid | 虚线 dashed（用于公交等） */
+  strokeStyle?: "solid" | "dashed"
 }
 
 interface TripMapProps {
@@ -120,6 +122,8 @@ export function TripMap({
             strokeColor: polyline.strokeColor || "#1890ff",
             strokeWeight: polyline.strokeWeight || 4,
             strokeOpacity: polyline.strokeOpacity || 0.8,
+            strokeStyle: polyline.strokeStyle || "solid",
+            strokeDasharray: polyline.strokeStyle === "dashed" ? [10, 5] : undefined,
             lineJoin: "round",
             lineCap: "round",
           })
@@ -208,6 +212,8 @@ export function TripMap({
         strokeColor: polyline.strokeColor || "#1890ff",
         strokeWeight: polyline.strokeWeight || 4,
         strokeOpacity: polyline.strokeOpacity || 0.8,
+        strokeStyle: polyline.strokeStyle || "solid",
+        strokeDasharray: polyline.strokeStyle === "dashed" ? [10, 5] : undefined,
       })
 
       mapInstanceRef.current.add(polylineInstance)

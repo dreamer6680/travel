@@ -145,6 +145,7 @@ async function getCoordinatesFromAttractions(
 
 /**
  * 增强行程数据，添加地点信息
+ * 若传入 selectedHotel 且含经纬度，会在每天首尾注入「从酒店出发」「返回酒店」，并参与公交规划
  */
 export async function enhanceTripWithLocations(
   trip: {
@@ -160,11 +161,37 @@ export async function enhanceTripWithLocations(
         location?: string
       }>
     }>
+    selectedHotel?: { name: string; cost: number; latitude?: number; longitude?: number }
   }
 ): Promise<TripWithLocations> {
   try {
+    // 若有选定酒店且含坐标，每天首尾注入酒店起止点，便于规划「酒店↔景点」公交
+    let daysToProcess = trip.days
+    if (
+      trip.selectedHotel &&
+      trip.selectedHotel.latitude != null &&
+      trip.selectedHotel.longitude != null
+    ) {
+      const hotelName = trip.selectedHotel.name
+      const hotelAct = (time: string, title: string) => ({
+        time,
+        title,
+        type: "酒店",
+        description: hotelName,
+        location: hotelName,
+      })
+      daysToProcess = trip.days.map((day) => ({
+        ...day,
+        activities: [
+          hotelAct("08:00", "从酒店出发"),
+          ...day.activities,
+          hotelAct("20:00", "返回酒店"),
+        ],
+      }))
+    }
+
     // 1. 提取所有活动的地点名称
-    const allActivities = trip.days.flatMap((day) => day.activities)
+    const allActivities = daysToProcess.flatMap((day) => day.activities)
     const locationMap = await extractLocationsFromActivities(allActivities, trip.destination)
 
     // 2. 收集所有唯一的地点名称
@@ -193,8 +220,24 @@ export async function enhanceTripWithLocations(
       }
     })
 
+    // 选定酒店的坐标（用于「从酒店出发」「返回酒店」）
+    if (
+      trip.selectedHotel &&
+      trip.selectedHotel.latitude != null &&
+      trip.selectedHotel.longitude != null
+    ) {
+      locationInfoMap.set(trip.selectedHotel.name, {
+        name: trip.selectedHotel.name,
+        address: trip.selectedHotel.name,
+        coordinate: {
+          lat: trip.selectedHotel.latitude,
+          lng: trip.selectedHotel.longitude,
+        },
+      })
+    }
+
     // 5. 增强活动数据
-    const enhancedDays: DayWithLocations[] = trip.days.map((day) => ({
+    const enhancedDays: DayWithLocations[] = daysToProcess.map((day) => ({
       ...day,
       activities: day.activities.map((activity) => {
         const activityKey = `${activity.title}-${activity.type}`

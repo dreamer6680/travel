@@ -52,6 +52,10 @@ interface Trip {
     }[]
     tips: string[]
   }
+  /** 用户选择的酒店（在结果页从推荐中选定后写入） */
+  selectedAccommodation?: { name: string; cost: number }
+  /** 系统选定的酒店（行程以该酒店为每日起止，含公交规划） */
+  selectedHotel?: { name: string; cost: number; latitude?: number; longitude?: number }
 }
 
 export default function TripResultPage() {
@@ -65,6 +69,34 @@ export default function TripResultPage() {
   const [error, setError] = useState<string | null>(null)
   const [isSaved, setIsSaved] = useState(false)
   const router = useRouter()
+
+  /** 用户从推荐列表中选定的酒店 */
+  const selectedAccommodation = trip?.selectedAccommodation ?? null
+
+  const handleSelectAccommodation = (item: { name: string; cost: number }) => {
+    if (!trip) return
+    const updated = { ...trip, selectedAccommodation: item }
+    setTrip(updated)
+    try {
+      localStorage.setItem("trip", JSON.stringify(updated))
+    } catch (_) {}
+    toast({
+      title: "已选择住宿",
+      description: `${item.name} · ¥${item.cost.toLocaleString()}/晚`,
+    })
+  }
+
+  const handleClearAccommodation = () => {
+    if (!trip) return
+    const { selectedAccommodation: _, ...rest } = trip
+    const updated = { ...rest, selectedAccommodation: undefined }
+    setTrip(updated)
+    try {
+      localStorage.setItem("trip", JSON.stringify(updated))
+    } catch (_) {}
+    toast({ title: "已取消选择", description: "可重新从推荐列表中选择酒店" })
+  }
+
   useEffect(() => {
     async function fetchTripData() {
       try {
@@ -390,20 +422,74 @@ export default function TripResultPage() {
                   </div>
 
                   <div>
-                    <h3 className="text-lg font-medium mb-2">住宿推荐</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {trip.practicalInfo.accommodation.map((item, index) => (
-                        <Card key={index} className="bg-muted/50">
+                    <h3 className="text-lg font-medium mb-2">住宿</h3>
+                    {trip.selectedHotel ? (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          已为您选定一家酒店，每日行程从该酒店出发并返回，含公共交通规划
+                        </p>
+                        <Card className="border-primary bg-primary/5">
                           <CardContent className="p-4 flex items-center gap-3">
-                            <Hotel className="h-5 w-5 text-primary" />
-                            <div>
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-sm text-muted-foreground">¥{item.cost.toLocaleString()}/晚</p>
+                            <Hotel className="h-5 w-5 text-primary shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium">{trip.selectedHotel.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                ¥{trip.selectedHotel.cost.toLocaleString()}/晚
+                              </p>
                             </div>
                           </CardContent>
                         </Card>
-                      ))}
-                    </div>
+                      </>
+                    ) : (
+                      <>
+                        {selectedAccommodation && (
+                          <Card className="mb-4 border-primary bg-primary/5">
+                            <CardContent className="p-4 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <Hotel className="h-5 w-5 text-primary shrink-0" />
+                                <div>
+                                  <p className="font-medium">您选择的住宿</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {selectedAccommodation.name} · ¥{selectedAccommodation.cost.toLocaleString()}/晚
+                                  </p>
+                                </div>
+                              </div>
+                              <Button type="button" variant="ghost" size="sm" onClick={handleClearAccommodation}>
+                                重选
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {trip.practicalInfo.accommodation.map((item, index) => {
+                            const isSelected =
+                              selectedAccommodation?.name === item.name && selectedAccommodation?.cost === item.cost
+                            return (
+                              <Card
+                                key={index}
+                                className={`bg-muted/50 cursor-pointer transition-colors hover:bg-muted/70 ${
+                                  isSelected ? "ring-2 ring-primary" : ""
+                                }`}
+                                onClick={() => handleSelectAccommodation(item)}
+                              >
+                                <CardContent className="p-4 flex items-center gap-3">
+                                  <Hotel className="h-5 w-5 text-primary shrink-0" />
+                                  <div className="min-w-0 flex-1 flex items-center gap-2 text-sm">
+                                    <span className="font-medium truncate">{item.name}</span>
+                                    <span className="text-muted-foreground shrink-0">¥{item.cost.toLocaleString()}/晚</span>
+                                  </div>
+                                  {isSelected && (
+                                    <Badge variant="default" className="shrink-0">
+                                      已选
+                                    </Badge>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div>

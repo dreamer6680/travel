@@ -28,10 +28,20 @@ interface ActivityWithLocation {
   coordinate?: Coordinate
 }
 
+/** 相邻两活动间的公交路线（来自高德公交规划） */
+interface TransitSegmentBetweenActivities {
+  fromTitle: string
+  toTitle: string
+  fromIndex: number
+  toIndex: number
+  route: { duration: number; distance: number; segments: unknown[] }
+}
+
 interface DayWithLocations {
   day: number
   title: string
   activities: ActivityWithLocation[]
+  transitSegments?: TransitSegmentBetweenActivities[]
 }
 
 interface TripRouteMapProps {
@@ -170,63 +180,58 @@ export function TripRouteMap({
     }
   }, [displayMode, selectedDay, days, allLocations])
 
-  // 生成路线
+  // 生成路线（有公交规划时：公交段画虚线，其余画实线）
   const polylines = useMemo(() => {
-    // 验证坐标是否有效
     const isValidCoordinate = (coord: Coordinate | undefined): coord is Coordinate => {
-      return !!coord && 
-             typeof coord.lat === 'number' && 
-             typeof coord.lng === 'number' &&
-             !isNaN(coord.lat) && 
-             !isNaN(coord.lng)
+      return !!coord &&
+        typeof coord.lat === "number" &&
+        typeof coord.lng === "number" &&
+        !isNaN(coord.lat) &&
+        !isNaN(coord.lng)
     }
 
-    if (displayMode === "daily") {
-      if (selectedDay === null) return []
-
-      const day = days.find((d) => d.day === selectedDay)
-      if (!day) return []
-
-      const dayActivities = day.activities.filter((activity) => 
+    const buildDayPolylines = (
+      day: DayWithLocations,
+      dayIndex: number
+    ): Array<{ path: Coordinate[]; strokeColor: string; strokeWeight: number; strokeOpacity: number; strokeStyle?: "solid" | "dashed" }> => {
+      const dayActivities = day.activities.filter((activity) =>
         isValidCoordinate(activity.coordinate)
       )
       if (dayActivities.length < 2) return []
 
-      const color = DAY_COLORS[(selectedDay - 1) % DAY_COLORS.length]
-
-      return [
-        {
-          path: dayActivities.map((activity) => activity.coordinate!),
-          strokeColor: color,
-          strokeWeight: 4,
-          strokeOpacity: 0.8,
-        },
-      ]
-    } else {
-      // 整体模式：每天一条路线，不同颜色
-      return days
-        .map((day, dayIndex) => {
-          const dayActivities = day.activities.filter((activity) => 
-            isValidCoordinate(activity.coordinate)
-          )
-          if (dayActivities.length < 2) return null
-
-          const color = DAY_COLORS[dayIndex % DAY_COLORS.length]
-
-          return {
-            path: dayActivities.map((activity) => activity.coordinate!),
-            strokeColor: color,
-            strokeWeight: 3,
-            strokeOpacity: 0.6,
-          }
-        })
-        .filter(Boolean) as Array<{
+      const color = DAY_COLORS[dayIndex % DAY_COLORS.length]
+      const transitSet = new Set(
+        (day.transitSegments ?? []).map((s) => `${s.fromIndex}-${s.toIndex}`)
+      )
+      const result: Array<{
         path: Coordinate[]
         strokeColor: string
         strokeWeight: number
         strokeOpacity: number
-      }>
+        strokeStyle?: "solid" | "dashed"
+      }> = []
+      for (let i = 0; i < dayActivities.length - 1; i++) {
+        const from = dayActivities[i].coordinate!
+        const to = dayActivities[i + 1].coordinate!
+        const isTransit = transitSet.has(`${i}-${i + 1}`)
+        result.push({
+          path: [from, to],
+          strokeColor: isTransit ? "#13c2c2" : color,
+          strokeWeight: isTransit ? 4 : displayMode === "daily" ? 4 : 3,
+          strokeOpacity: isTransit ? 0.9 : displayMode === "daily" ? 0.8 : 0.6,
+          strokeStyle: isTransit ? "dashed" : "solid",
+        })
+      }
+      return result
     }
+
+    if (displayMode === "daily") {
+      if (selectedDay === null) return []
+      const day = days.find((d) => d.day === selectedDay)
+      if (!day) return []
+      return buildDayPolylines(day, selectedDay - 1)
+    }
+    return days.flatMap((day, dayIndex) => buildDayPolylines(day, dayIndex))
   }, [displayMode, selectedDay, days])
 
   // 计算总距离（估算）
@@ -322,7 +327,10 @@ export function TripRouteMap({
               <MapPin className="h-5 w-5" />
               行程地图
             </CardTitle>
-            <CardDescription>查看您的行程在地图上的分布</CardDescription>
+            <CardDescription>
+              查看您的行程在地图上的分布
+              {days.some((d) => d.transitSegments?.length) ? " · 虚线为公交路线" : ""}
+            </CardDescription>
           </div>
           {displayMode === "overall" && (
             <Badge variant="outline" className="flex items-center gap-1">

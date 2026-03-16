@@ -83,8 +83,8 @@ export class TripGenerationWorkflowService {
         throw new Error("未找到匹配的景点，请调整搜索条件")
       }
 
-      // 步骤 2.5: 按目的地匹配推荐酒店（用于住宿推荐）
-      let matchedHotels: Array<{ name: string; location: string | null; star: number; rating: number | null; priceDisplay: string | null; priceYuan: number | null }> = []
+      // 步骤 2.5: 按目的地匹配酒店，并选出最合适的一家（每日从酒店出发、回到酒店）
+      let matchedHotels: Awaited<ReturnType<typeof searchHotelsByLocation>> = []
       try {
         matchedHotels = await searchHotelsByLocation(enhancedInput.destination, 8)
         if (matchedHotels.length > 0) {
@@ -92,6 +92,45 @@ export class TripGenerationWorkflowService {
         }
       } catch (e) {
         console.warn("⚠️  查询推荐酒店失败，继续生成行程:", e)
+      }
+
+      // 选出最合适的一家酒店：有坐标时选离景点中心最近的，否则选评分最高的
+      let selectedHotel: { name: string; cost: number; latitude?: number; longitude?: number } | undefined
+      if (matchedHotels.length > 0) {
+        const withCoord = matchedHotels.filter((h) => h.latitude != null && h.longitude != null)
+        const attractionsWithCoord = matchedAttractions
+          .slice(0, 15)
+          .filter((a) => a.latitude != null && a.longitude != null)
+        if (withCoord.length > 0 && attractionsWithCoord.length > 0) {
+          const cenLat =
+            attractionsWithCoord.reduce((s, a) => s + Number(a.latitude), 0) / attractionsWithCoord.length
+          const cenLng =
+            attractionsWithCoord.reduce((s, a) => s + Number(a.longitude), 0) / attractionsWithCoord.length
+          let best = withCoord[0]
+          let bestD = 1e9
+          for (const h of withCoord) {
+            const d = (Number(h.latitude) - cenLat) ** 2 + (Number(h.longitude) - cenLng) ** 2
+            if (d < bestD) {
+              bestD = d
+              best = h
+            }
+          }
+          selectedHotel = {
+            name: best.name,
+            cost: best.priceYuan ?? 500,
+            latitude: Number(best.latitude),
+            longitude: Number(best.longitude),
+          }
+        } else {
+          const first = matchedHotels[0]
+          selectedHotel = {
+            name: first.name,
+            cost: first.priceYuan ?? 500,
+            latitude: first.latitude ?? undefined,
+            longitude: first.longitude ?? undefined,
+          }
+        }
+        console.log(`✅ 已选择酒店: ${selectedHotel.name}（用于每日出发/返回）`)
       }
 
       // 步骤 3: 路线规划（可选）
@@ -188,7 +227,7 @@ export class TripGenerationWorkflowService {
               durations: routePlan.durations,
             }
           : undefined,
-        matchedHotels.length > 0 ? matchedHotels : undefined
+        selectedHotel ?? undefined
       )
 
       console.log("✅ 行程生成完成")
@@ -197,6 +236,7 @@ export class TripGenerationWorkflowService {
         trip: {
           ...trip,
           id: Math.random().toString(36).substring(2, 15),
+          selectedHotel,
         },
         matchedAttractions: matchedAttractions.slice(0, 15).map((attr) => ({
           id: attr.attraction_id,
@@ -251,24 +291,35 @@ export class TripGenerationWorkflowService {
         rating: attr.rating || 0,
       }))
 
-      let matchedHotels: Array<{ name: string; location: string | null; star: number; rating: number | null; priceDisplay: string | null; priceYuan: number | null }> = []
+      let matchedHotels: Awaited<ReturnType<typeof searchHotelsByLocation>> = []
       try {
         matchedHotels = await searchHotelsByLocation(enhancedInput.destination, 8)
       } catch {
         // ignore
+      }
+      let selectedHotel: { name: string; cost: number; latitude?: number; longitude?: number } | undefined
+      if (matchedHotels.length > 0) {
+        const first = matchedHotels[0]
+        selectedHotel = {
+          name: first.name,
+          cost: first.priceYuan ?? 500,
+          latitude: first.latitude ?? undefined,
+          longitude: first.longitude ?? undefined,
+        }
       }
 
       const trip = await generateTripItinerary(
         enhancedInput,
         selectedAttractions,
         undefined,
-        matchedHotels.length > 0 ? matchedHotels : undefined
+        selectedHotel ?? undefined
       )
 
       return {
         trip: {
           ...trip,
           id: Math.random().toString(36).substring(2, 15),
+          selectedHotel,
         },
         matchedAttractions: matchedAttractions.slice(0, 15).map((attr) => ({
           id: attr.attraction_id,

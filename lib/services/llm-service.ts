@@ -174,14 +174,12 @@ export async function generateTripItinerary(
     distances: number[]
     durations: number[]
   },
-  matchedHotels?: Array<{
+  selectedHotel?: {
     name: string
-    location: string | null
-    star: number
-    rating: number | null
-    priceDisplay: string | null
-    priceYuan: number | null
-  }>
+    cost: number
+    latitude?: number
+    longitude?: number
+  }
 ): Promise<any> {
   const attractionsList = matchedAttractions
     .map(
@@ -197,6 +195,10 @@ export async function generateTripItinerary(
 - 总时间: ${routePlan.durations.reduce((a, b) => a + b, 0).toFixed(0)} 分钟`
     : ""
 
+  const hotelInstruction = selectedHotel
+    ? `\n已为您选定一家酒店：${selectedHotel.name}（约 ¥${selectedHotel.cost}/晚）。请按「每日从该酒店出发、当日行程结束后返回该酒店」安排行程；景点间交通可考虑公共交通。practicalInfo.accommodation 只放这一家：{"name": "${selectedHotel.name}", "cost": ${selectedHotel.cost}, "icon": "Hotel"}。`
+    : ""
+
   const prompt = `你是一位专业的旅游行程设计师，请根据以下信息生成一份详细而实用的旅游行程规划。
 
 用户需求：
@@ -209,8 +211,7 @@ export async function generateTripItinerary(
 - 兴趣偏好: ${enhancedInput.interests.join(", ")}
 
 匹配的景点列表：
-${attractionsList}${routeInfo}
-${matchedHotels && matchedHotels.length > 0 ? "\n推荐酒店列表（请将以下酒店放入 practicalInfo.accommodation，name 用酒店名，cost 用 priceYuan 或根据价格估算，icon 用 \"Hotel\"）：\n" + matchedHotels.map((h) => "- " + h.name + (h.location ? " (" + h.location + ")" : "") + " " + h.star + "星 评分" + (h.rating ?? "-") + " " + (h.priceDisplay ?? (h.priceYuan != null ? "¥" + h.priceYuan : ""))).join("\n") + "\n" : ""}
+${attractionsList}${routeInfo}${hotelInstruction}
 
 请生成一份详细的行程规划，使用以下 JSON 格式：
 
@@ -261,7 +262,8 @@ ${matchedHotels && matchedHotels.length > 0 ? "\n推荐酒店列表（请将以�
 4. 考虑交通时间和距离
 5. 预算要合理分配
 6. 活动类型要多样化
-7. 只返回 JSON，不要包含其他文字`
+7. 若已选定酒店，每天行程需从酒店出发并回到酒店，交通可写公交/地铁
+8. 只返回 JSON，不要包含其他文字`
 
   const content = await ollamaChat(
     "你是一位专业的旅游行程设计师，擅长根据用户需求和景点信息生成详细实用的行程规划。请始终只返回有效的 JSON，不要包含 markdown 或说明文字。",
@@ -275,21 +277,11 @@ ${matchedHotels && matchedHotels.length > 0 ? "\n推荐酒店列表（请将以�
 
   const itinerary = JSON.parse(cleanContent)
 
-  // 若提供了推荐酒店且行程里住宿为空或较少，则用推荐酒店补全 practicalInfo.accommodation
-  if (matchedHotels && matchedHotels.length > 0 && itinerary.practicalInfo) {
-    const existing = itinerary.practicalInfo.accommodation ?? []
-    const fromHotels = matchedHotels.slice(0, 6).map((h) => {
-      const cost = h.priceYuan ?? (h.priceDisplay ? parseInt(String(h.priceDisplay).replace(/\D/g, ""), 10) : null)
-      return { name: h.name, cost: cost && !isNaN(cost) ? cost : 500, icon: "Hotel" as const }
-    })
-    const seen = new Set((existing as Array<{ name: string }>).map((a) => a.name))
-    for (const h of fromHotels) {
-      if (!seen.has(h.name)) {
-        existing.push(h)
-        seen.add(h.name)
-      }
-    }
-    itinerary.practicalInfo.accommodation = existing
+  // 若已选定一家酒店，则住宿推荐只保留该酒店
+  if (selectedHotel && itinerary.practicalInfo) {
+    itinerary.practicalInfo.accommodation = [
+      { name: selectedHotel.name, cost: selectedHotel.cost, icon: "Hotel" as const },
+    ]
   }
 
   return {
