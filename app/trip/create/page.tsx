@@ -61,14 +61,33 @@ export default function CreateTripPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!formData.destination.trim()) {
+      toast({
+        title: "请输入目的地",
+        description: "目的地不能为空",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.dateRange.to) {
+      toast({
+        title: "请选择完整日期范围",
+        description: "请补充返程日期后再生成行程",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsGenerating(true)
 
     try {
       // 准备API请求数据
       const tripData = {
-        destination: formData.destination,
+        destination: formData.destination.trim(),
         startDate: formData.dateRange.from.toISOString().split("T")[0],
-        endDate: formData.dateRange.to ? formData.dateRange.to.toISOString().split("T")[0] : undefined,
+        endDate: formData.dateRange.to.toISOString().split("T")[0],
         travelers: Number.parseInt(formData.travelers),
         budget,
         travelStyle: formData.travelStyle,
@@ -148,7 +167,7 @@ export default function CreateTripPage() {
               <div className="space-y-2">
                 <Label>预算范围 (人民币/人)</Label>
                 <div className="pt-2">
-                  <Slider defaultValue={[5000]} max={20000} step={500} onValueChange={(value) => setBudget(value[0])} />
+                  <Slider value={[budget]} max={20000} step={500} onValueChange={(value) => setBudget(value[0])} />
                   <div className="flex justify-between mt-2">
                     <span className="text-sm text-muted-foreground">¥1,000</span>
                     <span className="text-sm font-medium">¥{budget.toLocaleString()}</span>

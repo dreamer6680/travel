@@ -60,6 +60,11 @@ export default function ChatPage() {
         }),
       });
 
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.error || "AI 服务请求失败");
+      }
+
       if (!response.body) throw new Error("响应体为空");
 
       const reader = response.body.getReader();
@@ -67,6 +72,18 @@ export default function ChatPage() {
       let done = false;
       let buffer = "";
       let assistantMessage = "";
+
+      const syncAssistantMessage = (nextContent: string) => {
+        setMessages((prev) => {
+          const msgs = [...prev];
+          if (msgs.length === 0 || msgs[msgs.length - 1].role !== "assistant") {
+            msgs.push({ role: "assistant", content: nextContent });
+          } else {
+            msgs[msgs.length - 1].content = nextContent;
+          }
+          return msgs;
+        });
+      };
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
@@ -85,24 +102,24 @@ export default function ChatPage() {
               const parsed = JSON.parse(line);
               const chunk = parsed.message?.content || "";
               assistantMessage += chunk;
-      
-              setMessages((prev) => {
-                const msgs = [...prev];
-                if (
-                  msgs.length === 0 ||
-                  msgs[msgs.length - 1].role !== "assistant"
-                ) {
-                  msgs.push({ role: "assistant", content: assistantMessage });
-                } else {
-                  // 这里覆盖，而不是 += chunk，避免重复
-                  msgs[msgs.length - 1].content = assistantMessage;
-                }
-                return msgs;
-              });
+              syncAssistantMessage(assistantMessage);
             } catch (err) {
               // JSON 不完整，跳过等待下一块
             }
           }
+        }
+      }
+
+      if (buffer.trim()) {
+        try {
+          const parsed = JSON.parse(buffer);
+          const chunk = parsed.message?.content || "";
+          if (chunk) {
+            assistantMessage += chunk;
+            syncAssistantMessage(assistantMessage);
+          }
+        } catch (err) {
+          console.warn("未能解析最后一个流式响应片段:", err);
         }
       }
     } catch (err: any) {

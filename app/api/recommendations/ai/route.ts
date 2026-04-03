@@ -1,21 +1,39 @@
-import { NextResponse } from "next/server";
-import clientPromise from "@/lib/db";
+import { NextResponse } from "next/server"
+import { getAIRecommendationFallbacks } from "@/lib/mock-data"
+import { getMongoClient, isMongoConfigured } from "@/lib/db"
 
-// 处理 GET 请求
-export async function GET(request: Request) {
+function normalizeMongoRecommendation(record: Record<string, unknown>, fallbackId: number) {
+  const idCandidate = typeof record.id === "number" ? record.id : fallbackId
+
+  return {
+    id: idCandidate,
+    name: String(record.name ?? record.title ?? "未命名推荐"),
+    location: String(record.location ?? record.city ?? "待补充"),
+    rating: Number(record.rating ?? 4.5),
+    type: String(record.type ?? "个性化推荐"),
+    description: String(record.description ?? record.reason ?? "基于偏好生成的推荐"),
+    imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : "/placeholder.svg?height=200&width=300",
+  }
+}
+
+export async function GET() {
+  if (!isMongoConfigured()) {
+    return NextResponse.json(getAIRecommendationFallbacks())
+  }
+
   try {
-    // 等待数据库连接成功
-    const client = await clientPromise;
-    const db = client.db("trip");
-    const collection = db.collection("Recomendations");
+    const client = await getMongoClient()
+    const db = client.db("trip")
+    const collection = db.collection("Recommendations")
+    const results = await collection.find({}).limit(12).toArray()
 
-    // 查询所有数据（可以根据需要加筛选条件）
-    const results = await collection.find({}).toArray();
+    if (results.length === 0) {
+      return NextResponse.json(getAIRecommendationFallbacks())
+    }
 
-    // 返回查询结果为 JSON
-    return NextResponse.json(results);
-  } catch (err) {
-    console.error("❌ Failed to fetch recommendations:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(results.map((item, index) => normalizeMongoRecommendation(item, index + 1000)))
+  } catch (error) {
+    console.error("获取 AI 推荐失败，已回退到本地数据:", error)
+    return NextResponse.json(getAIRecommendationFallbacks())
   }
 }

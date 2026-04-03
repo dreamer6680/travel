@@ -1,22 +1,24 @@
-// lib/mongodb.ts
-import { MongoClient } from "mongodb";
+import { MongoClient } from "mongodb"
 
-const uri = "mongodb://root:r6pbm9mm@dbconn.sealoshzh.site:40906/?directConnection=true";
-
-let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
+const uri = process.env.MONGODB_URI
 
 declare global {
-  // 用于在开发模式下防止多次创建连接
-  // @ts-ignore
-  var _mongoClientPromise: Promise<MongoClient>;
+  // eslint-disable-next-line no-var
+  var _mongoClientPromise: Promise<MongoClient> | undefined
 }
 
-if (!global._mongoClientPromise) {
-  client = new MongoClient(uri);
-  global._mongoClientPromise = client.connect();
+export function isMongoConfigured() {
+  return Boolean(uri)
 }
 
-clientPromise = global._mongoClientPromise;
+export function getMongoClient() {
+  if (!uri) {
+    throw new Error("MONGODB_URI is not configured")
+  }
 
-export default clientPromise;
+  if (!globalThis._mongoClientPromise) {
+    globalThis._mongoClientPromise = new MongoClient(uri).connect()
+  }
+
+  return globalThis._mongoClientPromise
+}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -22,6 +23,7 @@ interface Attraction {
 }
 
 export default function RecommendationsPage() {
+  const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
   const [favorites, setFavorites] = useState<number[]>([])
   const [selectedType, setSelectedType] = useState("all")
@@ -38,6 +40,13 @@ export default function RecommendationsPage() {
 
   // 添加错误状态
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const city = searchParams.get("city")
+    if (city) {
+      setSearchQuery(city)
+    }
+  }, [searchParams])
 
   // 获取热门景点
   useEffect(() => {
@@ -94,11 +103,11 @@ export default function RecommendationsPage() {
   }, [])
 
   const toggleFavorite = (id: number) => {
-    if (favorites.includes(id)) {
-      setFavorites(favorites.filter((item) => item !== id))
-    } else {
-      setFavorites([...favorites, id])
-    }
+    setFavorites((currentFavorites) =>
+      currentFavorites.includes(id)
+        ? currentFavorites.filter((item) => item !== id)
+        : [...currentFavorites, id],
+    )
   }
 
   // 根据类型筛选景点

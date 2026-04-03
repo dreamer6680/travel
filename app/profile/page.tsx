@@ -94,8 +94,8 @@ export default function ProfilePage() {
 
     try {
       setIsSaving(true)
-      await userAPI.updatePreferences(updatedData)
-      setProfile({ ...profile, ...updatedData })
+      const savedProfile = await userAPI.updateProfile(updatedData)
+      setProfile(savedProfile)
       toast({
         title: "保存成功",
         description: "您的资料已更新",
@@ -207,6 +207,16 @@ function ProfileInfoCard({
     location: profile.location,
     bio: profile.bio,
   })
+
+  useEffect(() => {
+    setFormData({
+      name: profile.name,
+      email: profile.email,
+      phone: profile.phone,
+      location: profile.location,
+      bio: profile.bio,
+    })
+  }, [profile])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -365,6 +375,10 @@ function PreferencesCard({
   isSaving: boolean
 }) {
   const [formData, setFormData] = useState(preferences)
+
+  useEffect(() => {
+    setFormData(preferences)
+  }, [preferences])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -570,6 +584,10 @@ function NotificationsCard({
 }) {
   const [formData, setFormData] = useState(settings)
 
+  useEffect(() => {
+    setFormData(settings)
+  }, [settings])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSave(formData)
@@ -706,6 +724,10 @@ function PrivacyCard({
   isSaving: boolean
 }) {
   const [formData, setFormData] = useState(settings)
+
+  useEffect(() => {
+    setFormData(settings)
+  }, [settings])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

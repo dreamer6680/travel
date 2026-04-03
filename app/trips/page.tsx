@@ -92,7 +92,7 @@ export default function TripsPage() {
   const handleDeleteTrip = async (tripId: string) => {
     try {
       await tripAPI.deleteTrip(tripId)
-      setTrips(trips.filter((trip) => trip.id !== tripId))
+      setTrips((currentTrips) => currentTrips.filter((trip) => trip.id !== tripId))
       toast({
         title: "行程已删除",
         description: "行程已成功删除",

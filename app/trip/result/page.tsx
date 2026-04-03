@@ -99,6 +99,17 @@ export default function TripResultPage() {
     return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" })
   }
 
+  const getTripDuration = (currentTrip: Trip) => {
+    if (currentTrip.days.length > 0) {
+      return currentTrip.days.length
+    }
+
+    const start = new Date(currentTrip.startDate)
+    const end = new Date(currentTrip.endDate)
+    const diffInDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+    return Math.max(1, diffInDays + 1)
+  }
+
   if (isLoading) {
     return (
       <div className="container py-8 flex justify-center items-center min-h-[60vh]">
@@ -136,11 +147,7 @@ export default function TripResultPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold">
-              {trip.destination}{" "}
-              {Math.ceil(
-                (new Date(trip.endDate).getTime() - new Date(trip.startDate).getTime()) / (1000 * 60 * 60 * 24),
-              )}{" "}
-              日游
+              {trip.destination} {getTripDuration(trip)} 日游
             </h1>
             <p className="text-muted-foreground">
               {formatDate(trip.startDate)} - {formatDate(trip.endDate)} · {trip.travelers}人
