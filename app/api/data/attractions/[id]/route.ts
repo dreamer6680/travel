@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getAttractionById } from "@/lib/mock-data"
 
 type RouteContext = {
-  params: { id: string } | Promise<{ id: string }>
+  params: Promise<{ id: string }>
 }
 
 export async function GET(_request: Request, context: RouteContext) {

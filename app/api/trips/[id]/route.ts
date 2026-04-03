@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { deleteTrip, getTripById, updateTrip } from "@/lib/mock-data"
 
 type RouteContext = {
-  params: { id: string } | Promise<{ id: string }>
+  params: Promise<{ id: string }>
 }
 
 async function resolveTripId(context: RouteContext) {

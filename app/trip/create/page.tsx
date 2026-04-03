@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import type { DateRange } from "react-day-picker"
 
 export default function CreateTripPage() {
   const router = useRouter()
@@ -23,7 +24,13 @@ export default function CreateTripPage() {
   const [budget, setBudget] = useState(5000)
 
   // 添加表单状态
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    destination: string
+    dateRange: DateRange
+    travelers: string
+    travelStyle: string
+    interests: string
+  }>({
     destination: "",
     dateRange: {
       from: new Date(),
@@ -52,15 +59,24 @@ export default function CreateTripPage() {
   }
 
   // 处理日期范围变化
-  const handleDateRangeChange = (dateRange: { from: Date; to?: Date }) => {
+  const handleDateRangeChange = (dateRange: DateRange | undefined) => {
     setFormData({
       ...formData,
-      dateRange,
+      dateRange: dateRange ?? { from: new Date() },
     })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!formData.dateRange.from) {
+      toast({
+        title: "请选择出发日期",
+        description: "请补充出发日期后再生成行程",
+        variant: "destructive",
+      })
+      return
+    }
 
     if (!formData.destination.trim()) {
       toast({
@@ -143,7 +159,7 @@ export default function CreateTripPage() {
                 <Label>旅行日期</Label>
                 <DatePickerWithRange
                   date={formData.dateRange}
-                  setDate={(range) => handleDateRangeChange(range || { from: new Date() })}
+                  setDate={handleDateRangeChange}
                 />
               </div>
 

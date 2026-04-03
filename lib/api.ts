@@ -1,4 +1,21 @@
+import type { Attraction, TripRecord, UserProfile } from "@/lib/mock-data"
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? ""
+
+interface AuthResponse {
+  token: string
+  user: UserProfile
+}
+
+interface ApiMessage {
+  message: string
+}
+
+interface City {
+  id: string
+  name: string
+  country: string
+}
 
 function buildAPIUrl(endpoint: string) {
   const normalizedEndpoint = endpoint.startsWith("/api/") ? endpoint : `/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`
@@ -15,7 +32,7 @@ async function parseResponseBody(response: Response) {
   return response.text().catch(() => "")
 }
 
-async function fetchAPI<T>(endpoint: string, options: RequestInit = {}) {
+async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}) {
   const response = await fetch(buildAPIUrl(endpoint), {
     ...options,
     headers: {
@@ -43,32 +60,32 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}) {
 
 export const userAPI = {
   login: (email: string, password: string) => {
-    return fetchAPI("/auth/login", {
+    return fetchAPI<AuthResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     })
   },
 
   register: (userData: Record<string, unknown>) => {
-    return fetchAPI("/auth/register", {
+    return fetchAPI<AuthResponse>("/auth/register", {
       method: "POST",
       body: JSON.stringify(userData),
     })
   },
 
   getProfile: () => {
-    return fetchAPI("/user/profile")
+    return fetchAPI<UserProfile>("/user/profile")
   },
 
   updateProfile: (profileData: Record<string, unknown>) => {
-    return fetchAPI("/user/profile", {
+    return fetchAPI<UserProfile>("/user/profile", {
       method: "PUT",
       body: JSON.stringify(profileData),
     })
   },
 
   updatePreferences: (preferences: Record<string, unknown>) => {
-    return fetchAPI("/user/profile", {
+    return fetchAPI<UserProfile>("/user/profile", {
       method: "PUT",
       body: JSON.stringify(preferences),
     })
@@ -77,29 +94,29 @@ export const userAPI = {
 
 export const tripAPI = {
   createTrip: (tripData: Record<string, unknown>) => {
-    return fetchAPI("/trips", {
+    return fetchAPI<TripRecord>("/trips", {
       method: "POST",
       body: JSON.stringify(tripData),
     })
   },
 
   getTrip: (tripId: string) => {
-    return fetchAPI(`/trips/${tripId}`)
+    return fetchAPI<TripRecord>(`/trips/${tripId}`)
   },
 
   getUserTrips: () => {
-    return fetchAPI("/trips/user")
+    return fetchAPI<TripRecord[]>("/trips/user")
   },
 
   updateTrip: (tripId: string, tripData: Record<string, unknown>) => {
-    return fetchAPI(`/trips/${tripId}`, {
+    return fetchAPI<TripRecord>(`/trips/${tripId}`, {
       method: "PUT",
       body: JSON.stringify(tripData),
     })
   },
 
   deleteTrip: (tripId: string) => {
-    return fetchAPI(`/trips/${tripId}`, {
+    return fetchAPI<ApiMessage>(`/trips/${tripId}`, {
       method: "DELETE",
     })
   },
@@ -108,17 +125,17 @@ export const tripAPI = {
 export const recommendationAPI = {
   getPopularAttractions: (params: Record<string, string> = {}) => {
     const queryParams = new URLSearchParams(params).toString()
-    return fetchAPI(`/recommendations/popular${queryParams ? `?${queryParams}` : ""}`)
+    return fetchAPI<Attraction[]>(`/recommendations/popular${queryParams ? `?${queryParams}` : ""}`)
   },
 
   getHiddenGems: (params: Record<string, string> = {}) => {
     const queryParams = new URLSearchParams(params).toString()
-    return fetchAPI(`/recommendations/hidden${queryParams ? `?${queryParams}` : ""}`)
+    return fetchAPI<Attraction[]>(`/recommendations/hidden${queryParams ? `?${queryParams}` : ""}`)
   },
 
   getAIRecommendations: (params: Record<string, string> = {}) => {
     const queryParams = new URLSearchParams(params).toString()
-    return fetchAPI(`/recommendations/ai${queryParams ? `?${queryParams}` : ""}`)
+    return fetchAPI<Attraction[]>(`/recommendations/ai${queryParams ? `?${queryParams}` : ""}`)
   },
 
   searchAttractions: (query: string, filters: Record<string, string> = {}) => {
@@ -126,20 +143,22 @@ export const recommendationAPI = {
       q: query,
       ...filters,
     }).toString()
-    return fetchAPI(`/recommendations/search${queryParams ? `?${queryParams}` : ""}`)
+    return fetchAPI<Attraction[]>(`/recommendations/search${queryParams ? `?${queryParams}` : ""}`)
   },
 }
 
 export const dataAPI = {
   getCities: () => {
-    return fetchAPI("/data/cities")
+    return fetchAPI<City[]>("/data/cities")
   },
 
   getAttractions: (cityId?: string) => {
-    return fetchAPI(cityId ? `/data/attractions?cityId=${encodeURIComponent(cityId)}` : "/data/attractions")
+    return fetchAPI<Attraction[]>(
+      cityId ? `/data/attractions?cityId=${encodeURIComponent(cityId)}` : "/data/attractions",
+    )
   },
 
   getAttraction: (attractionId: string) => {
-    return fetchAPI(`/data/attractions/${attractionId}`)
+    return fetchAPI<Attraction>(`/data/attractions/${attractionId}`)
   },
 }

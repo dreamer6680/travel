@@ -13,12 +13,12 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        code({ node, inline, className, children, ...props }) {
+        code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || "")
           const language = match ? match[1] : ""
           const code = String(children).replace(/\n$/, "")
 
-          if (!inline && language) {
+          if (language) {
             return <CodeBlock language={language} code={code} />
           }
 
