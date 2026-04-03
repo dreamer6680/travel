@@ -10,31 +10,31 @@ export interface Attraction {
   imageUrl?: string
 }
 
-interface TripActivity {
+export interface TripActivity {
   time: string
   title: string
   type: string
   description: string
 }
 
-interface TripDay {
+export interface TripDay {
   day: number
   title: string
   activities: TripActivity[]
 }
 
-interface TripRecommendation {
+export interface TripRecommendation {
   name: string
   type: string
 }
 
-interface TripPracticalItem {
+export interface TripPracticalItem {
   name: string
   cost: number
   icon: string
 }
 
-interface TripPracticalInfo {
+export interface TripPracticalInfo {
   transportation: TripPracticalItem[]
   accommodation: TripPracticalItem[]
   tips: string[]
@@ -110,6 +110,10 @@ interface TripInput {
   createdAt?: string
   updatedAt?: string
   id?: string
+  days?: TripDay[]
+  highlights?: string[]
+  recommendations?: TripRecommendation[]
+  practicalInfo?: TripPracticalInfo
 }
 
 interface TravelStore {
@@ -641,6 +645,41 @@ function getTripDurationInDays(startDate: string, endDate: string) {
   return Math.max(1, diffInDays + 1)
 }
 
+function deriveDayTitle(activities: TripActivity[]) {
+  const titles = activities
+    .map((activity) => activity.title.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+
+  return titles.length > 0 ? titles.join(" · ") : "自由探索"
+}
+
+function normalizeTripDays(days: TripDay[]) {
+  return days.map((day, dayIndex) => {
+    const activities = day.activities.map((activity, activityIndex) => ({
+      time: activity.time?.trim() || `时段 ${activityIndex + 1}`,
+      title: activity.title?.trim() || `行程点 ${activityIndex + 1}`,
+      type: activity.type?.trim() || "景点",
+      description: activity.description?.trim() || "待补充活动描述。",
+    }))
+
+    return {
+      day: dayIndex + 1,
+      title: day.title?.trim() || deriveDayTitle(activities),
+      activities,
+    }
+  })
+}
+
+function deriveHighlights(days: TripDay[], fallbackHighlights: string[]) {
+  const nextHighlights = Array.from(new Set(days.flatMap((day) => day.activities.map((activity) => activity.title)))).slice(
+    0,
+    5,
+  )
+
+  return nextHighlights.length > 0 ? nextHighlights : fallbackHighlights
+}
+
 function resolveDestinationSeed(destination: string) {
   const normalizedDestination = destination.toLowerCase()
 
@@ -680,11 +719,17 @@ function createTripRecord(input: TripInput): TripRecord {
   const duration = getTripDurationInDays(input.startDate, normalizedEndDate)
   const destination = input.destination.trim()
   const seed = resolveDestinationSeed(destination)
-  const days = buildTripDays(seed, duration)
+  const generatedDays = buildTripDays(seed, duration)
+  const days =
+    input.days && input.days.length > 0 ? normalizeTripDays(clone(input.days)) : generatedDays
+  const highlights =
+    input.highlights && input.highlights.length > 0
+      ? clone(input.highlights)
+      : deriveHighlights(days, seed.highlights.slice(0, 5))
 
   return {
     id: input.id ?? crypto.randomUUID(),
-    title: input.title ?? `${destination} ${duration} 日游`,
+    title: input.title ?? `${destination} ${days.length} 日游`,
     destination,
     startDate: formatDate(resolveDate(input.startDate)),
     endDate: normalizedEndDate,
@@ -692,12 +737,12 @@ function createTripRecord(input: TripInput): TripRecord {
     budget: Math.max(0, input.budget || 0),
     status: input.status ?? "draft",
     travelStyle: input.travelStyle || "balanced",
-    highlights: seed.highlights.slice(0, 5),
+    highlights,
     createdAt,
     updatedAt: input.updatedAt ?? createdAt,
     days,
-    recommendations: clone(seed.recommendations),
-    practicalInfo: clone(seed.practicalInfo),
+    recommendations: input.recommendations ? clone(input.recommendations) : clone(seed.recommendations),
+    practicalInfo: input.practicalInfo ? clone(input.practicalInfo) : clone(seed.practicalInfo),
   }
 }
 
@@ -805,6 +850,10 @@ export function updateTrip(id: string, updates: Partial<TripRecord>) {
     status: updates.status ?? current.status,
     createdAt: current.createdAt,
     updatedAt: new Date().toISOString(),
+    days: updates.days ?? current.days,
+    highlights: updates.highlights ?? current.highlights,
+    recommendations: updates.recommendations ?? current.recommendations,
+    practicalInfo: updates.practicalInfo ?? current.practicalInfo,
   })
 
   store.trips[index] = nextTrip
