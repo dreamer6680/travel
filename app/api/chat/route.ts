@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
-import { ChatService } from "@/server/controllers"
+import { ChatService } from "@/server/controllers/chatService"
 
-export const runtime = "edge"
+export const runtime = "nodejs"
 
 const chatService = new ChatService()
 

@@ -13,7 +13,7 @@ import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { TripRouteMap } from "@/components/trip-route-map"
-import { enhanceTripWithLocations, TripWithLocations } from "@/lib/services/trip-location-enhancer"
+import type { TripWithLocations } from "@/lib/services/trip-location-enhancer"
 
 // 定义行程类型
 interface Trip {
