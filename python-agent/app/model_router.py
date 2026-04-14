@@ -1,11 +1,39 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, AsyncGenerator, Dict, List
 
 import httpx
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
+
+
+async def _raise_for_ollama_chat(response: httpx.Response) -> None:
+    """Ollama 对未知模型常返回 404，与「接口不存在」易混淆，这里单独说明。"""
+    if response.status_code == 404:
+        try:
+            body = (response.text or "")[:400]
+        except Exception:
+            body = ""
+        raise RuntimeError(
+            f"Ollama /api/chat 返回 404：本机可能没有聊天模型 {settings.ollama_chat_model!r}。"
+            f"请执行: ollama pull {settings.ollama_chat_model}，或设置环境变量 OLLAMA_CHAT_MODEL 为 `ollama list` 中已有名称。"
+            f" 响应片段: {body}"
+        )
+    response.raise_for_status()
+
+
+async def _raise_for_ollama_stream(response: httpx.Response) -> None:
+    if response.status_code == 404:
+        body = (await response.aread()).decode(errors="replace")[:400]
+        raise RuntimeError(
+            f"Ollama /api/chat 返回 404：本机可能没有聊天模型 {settings.ollama_chat_model!r}。"
+            f"请执行: ollama pull {settings.ollama_chat_model}，或设置 OLLAMA_CHAT_MODEL。响应片段: {body}"
+        )
+    response.raise_for_status()
 
 
 class ModelRouter:
@@ -23,23 +51,45 @@ class ModelRouter:
     async def chat_with_fallback(self, messages: List[Dict[str, str]]) -> str:
         try:
             return await self.chat_once(messages, self.provider)
-        except Exception:
-            if self.fallback_provider and self.fallback_provider != self.provider:
-                return await self.chat_once(messages, self.fallback_provider)
-            raise
+        except Exception as primary_exc:
+            if not self.fallback_provider or self.fallback_provider == self.provider:
+                raise
+            try:
+                out = await self.chat_once(messages, self.fallback_provider)
+            except Exception as fb_exc:
+                raise RuntimeError(
+                    f"主 LLM ({self.provider}) 失败: {primary_exc}; "
+                    f"回退 ({self.fallback_provider}) 失败: {fb_exc}"
+                ) from fb_exc
+            logger.warning(
+                "主 LLM (%s) 失败，已使用回退 (%s)。主因: %s",
+                self.provider,
+                self.fallback_provider,
+                primary_exc,
+            )
+            return out
 
     async def stream_chat_with_fallback(
         self, messages: List[Dict[str, str]]
     ) -> AsyncGenerator[str, None]:
+        primary_exc: Exception | None = None
         try:
             async for line in self._stream_chat(messages, self.provider):
                 yield line
-        except Exception:
-            if self.fallback_provider and self.fallback_provider != self.provider:
-                async for line in self._stream_chat(messages, self.fallback_provider):
-                    yield line
-            else:
-                raise
+            return
+        except Exception as e:
+            primary_exc = e
+        if not self.fallback_provider or self.fallback_provider == self.provider:
+            assert primary_exc is not None
+            raise primary_exc
+        logger.warning(
+            "流式主 LLM (%s) 失败，切换回退 (%s): %s",
+            self.provider,
+            self.fallback_provider,
+            primary_exc,
+        )
+        async for line in self._stream_chat(messages, self.fallback_provider):
+            yield line
 
     async def _stream_chat(
         self, messages: List[Dict[str, str]], provider: str
@@ -59,7 +109,7 @@ class ModelRouter:
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(f"{settings.ollama_base_url}/api/chat", json=payload)
-            response.raise_for_status()
+            await _raise_for_ollama_chat(response)
             data = response.json()
             content = data.get("message", {}).get("content")
             if not isinstance(content, str):
@@ -76,7 +126,7 @@ class ModelRouter:
             async with client.stream(
                 "POST", f"{settings.ollama_base_url}/api/chat", json=payload
             ) as response:
-                response.raise_for_status()
+                await _raise_for_ollama_stream(response)
                 async for raw_line in response.aiter_lines():
                     if not raw_line.strip():
                         continue

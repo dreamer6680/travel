@@ -12,6 +12,7 @@ class Settings:
     llm_fallback_provider: str = os.getenv("LLM_FALLBACK_PROVIDER", "openai")
 
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    # 须与 `ollama list` 中名称一致；未 pull 时 /api/chat 会 404（与 embedding 模型无关）
     ollama_chat_model: str = os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:7b")
     ollama_embedding_model: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 

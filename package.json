@@ -11,8 +11,13 @@
     "lint": "next lint",
     "db:init": "tsx scripts/init-db.ts",
     "db:wait": "tsx scripts/wait-for-mongo.ts",
+    "ollama:wait": "tsx scripts/wait-for-ollama.ts",
     "db:setup": "tsx scripts/wait-for-mongo.ts && tsx scripts/init-db.ts",
     "scrape": "tsx scripts/run-scrape.ts",
+    "scrape:hotels": "tsx scripts/scrape-ctrip-hotels.ts 2 --pages=5",
+    "scrape:restaurants": "tsx scripts/scrape-ctrip-restaurants.ts 2 10",
+    "vectorize:pg": "tsx scripts/vectorize-mongo-to-pg.ts",
+    "bootstrap:all": "tsx scripts/bootstrap-all.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:setup": "docker-compose up -d && npm run db:setup"
