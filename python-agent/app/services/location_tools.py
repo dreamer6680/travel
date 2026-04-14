@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+import httpx
+
+from ..config import settings
 
 
 def _hash_coord(name: str) -> Tuple[float, float]:
@@ -18,7 +21,40 @@ def _extract_location(activity: Dict[str, Any], destination: str) -> str:
     return base[:50]
 
 
-def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
+async def geocode_name(name: str, city: str) -> Dict[str, float]:
+    geo = await _geocode_amap(name, city)
+    if geo is None:
+        lat, lng = _hash_coord(f"{city}:{name}")
+    else:
+        lat, lng = geo
+    return {"lat": lat, "lng": lng}
+
+
+async def _geocode_amap(address: str, city: str) -> Tuple[float, float] | None:
+    if not settings.amap_web_service_key:
+        return None
+    params = {
+        "key": settings.amap_web_service_key,
+        "address": address,
+        "city": city,
+        "output": "json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get("https://restapi.amap.com/v3/geocode/geo", params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        if data.get("status") == "1" and data.get("geocodes"):
+            location = data["geocodes"][0].get("location", "")
+            if "," in location:
+                lng, lat = location.split(",", 1)
+                return float(lat), float(lng)
+    except Exception:
+        return None
+    return None
+
+
+async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
     destination = str(trip.get("destination", ""))
     days: List[Dict[str, Any]] = trip.get("days", []) or []
 
@@ -30,7 +66,11 @@ def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
         enhanced_activities = []
         for act in day.get("activities", []) or []:
             location_name = _extract_location(act, destination)
-            lat, lng = _hash_coord(f"{destination}:{location_name}")
+            geo = await _geocode_amap(location_name, destination)
+            if geo is None:
+                lat, lng = _hash_coord(f"{destination}:{location_name}")
+            else:
+                lat, lng = geo
             enriched = {
                 **act,
                 "location": location_name,

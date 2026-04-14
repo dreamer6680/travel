@@ -18,6 +18,9 @@ from .models import (
     TripResponseModel,
 )
 from .services.location_tools import enhance_trip_locations
+from .services.data_sources import data_sources
+from .services.embedding_service import embed_text
+from .services.pg_vector_store import pg_vector_store
 from .services.trip_tools import build_candidate_attractions
 
 
@@ -93,7 +96,7 @@ async def trip_locations(payload: Dict[str, object]):
     trip = payload.get("trip")
     if not isinstance(trip, dict):
         raise HTTPException(status_code=400, detail="invalid trip payload")
-    return enhance_trip_locations(trip)
+    return await enhance_trip_locations(trip)
 
 
 @app.get(
@@ -102,7 +105,24 @@ async def trip_locations(payload: Dict[str, object]):
     description="兼容原有前端推荐页，返回 AI 推荐结构。",
 )
 async def ai_recommendations(destination: str = Query(default="热门城市")):
-    rows = build_candidate_attractions(destination, "美食,文化,观景")
+    emb = await embed_text(f"目的地:{destination} 兴趣:美食,文化,观景")
+    rows = await data_sources.fetch_recommendations_by_embedding(emb, destination, "美食,文化,观景", 20)
+    if not rows:
+        return build_candidate_attractions(destination, "美食,文化,观景")
+    return rows
+
+
+@app.post(
+    "/v1/recommendations/ai",
+    summary="AI 推荐列表（POST）",
+    description="与 GET 语义一致，兼容客户端误用 POST。",
+)
+async def ai_recommendations_post(payload: Dict[str, object]):
+    destination = str(payload.get("destination", "热门城市"))
+    emb = await embed_text(f"目的地:{destination} 兴趣:美食,文化,观景")
+    rows = await data_sources.fetch_recommendations_by_embedding(emb, destination, "美食,文化,观景", 20)
+    if not rows:
+        return build_candidate_attractions(destination, "美食,文化,观景")
     return rows
 
 
@@ -114,8 +134,19 @@ async def ai_recommendations(destination: str = Query(default="热门城市")):
 async def vectorize_user_preferences(payload: Dict[str, object]):
     user_id = str(payload.get("userId", ""))
     preferences = payload.get("preferences", {})
+    pref_text = str(preferences)
+    emb = await embed_text(pref_text)
+    try:
+        await pg_vector_store.upsert_user_preference_vector(user_id, pref_text, emb)
+    except Exception as exc:
+        logger.warning("upsert user preference vector failed: %s", exc)
     logger.info("vectorize preferences request user_id=%s", user_id)
-    return {"ok": True, "userId": user_id, "preferencesDigest": str(preferences)[:120]}
+    return {
+        "ok": True,
+        "userId": user_id,
+        "embeddingDim": len(emb),
+        "preferencesDigest": pref_text[:120],
+    }
 
 
 @app.exception_handler(Exception)

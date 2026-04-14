@@ -90,7 +90,7 @@ def build_trip_response(
         ]
         days.append({"day": day_num, "title": day["title"], "activities": activities})
 
-    return {
+    result = {
         "id": uuid4().hex[:12],
         "title": f"{request['destination']}个性化行程",
         "destination": request["destination"],
@@ -121,3 +121,13 @@ def build_trip_response(
         "createdAt": datetime.utcnow().isoformat(),
         "updatedAt": datetime.utcnow().isoformat(),
     }
+    # 兼容：保证 description 为字符串
+    for day in result["days"]:
+        for act in day.get("activities", []):
+            if isinstance(act.get("description"), list):
+                act["description"] = "，".join(str(x) for x in act["description"])
+            elif act.get("description") is None:
+                act["description"] = ""
+            else:
+                act["description"] = str(act["description"])
+    return result
