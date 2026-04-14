@@ -8,12 +8,26 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Badge } from "@/components/ui/badge"
 import { Share2, Heart, Download, MapPin, Clock, Utensils, Train, Hotel, Loader2 } from "lucide-react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
-import { useRouter } from "next/navigation"
 import { TripRouteMap } from "@/components/trip-route-map"
-import type { TripWithLocations } from "@/lib/services/trip-location-enhancer"
+interface TripWithLocations {
+  destination: string
+  days: Array<{
+    day: number
+    title: string
+    activities: Array<{
+      time: string
+      title: string
+      type: string
+      description: string
+      location?: string
+      coordinate?: { lat: number; lng: number }
+    }>
+  }>
+  allLocations: Array<{ name: string; coordinate: { lat: number; lng: number } }>
+}
 
 // 定义行程类型
 interface Trip {
@@ -58,8 +72,33 @@ interface Trip {
   selectedHotel?: { name: string; cost: number; latitude?: number; longitude?: number }
 }
 
+const TRAVEL_STYLE_META: Record<string, { label: string; description: string }> = {
+  relaxed: { label: "休闲放松", description: "注重休闲与放松" },
+  balanced: { label: "平衡兼顾", description: "兼顾热门景点和当地体验" },
+  intensive: { label: "密集行程", description: "高效游览更多景点" },
+  adventure: { label: "探险冒险", description: "注重户外和冒险体验" },
+  cultural: { label: "文化体验", description: "深入了解当地文化" },
+}
+
+function getTravelStyleMeta(style: string) {
+  return TRAVEL_STYLE_META[style] ?? { label: style, description: "" }
+}
+
+function safeParseTrip(raw: string | null): Trip | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && Array.isArray(parsed.days)) {
+      return parsed as Trip
+    }
+    return null
+  } catch (error) {
+    console.error("解析本地行程数据失败:", error)
+    return null
+  }
+}
+
 export default function TripResultPage() {
-  const searchParams = useSearchParams()
   const { toast } = useToast()
 
   const [trip, setTrip] = useState<Trip | null>(null)
@@ -101,11 +140,11 @@ export default function TripResultPage() {
     async function fetchTripData() {
       try {
         setIsLoading(true)
-        const data = JSON.parse(localStorage.getItem("trip") || "{}")
+        const data = safeParseTrip(localStorage.getItem("trip"))
         setTrip(data)
 
         // 如果有行程数据，获取地点信息
-        if (data && data.days) {
+        if (data?.days) {
           setIsLoadingLocations(true)
           try {
             // 调用 API 获取地点坐标
@@ -128,6 +167,8 @@ export default function TripResultPage() {
           } finally {
             setIsLoadingLocations(false)
           }
+        } else {
+          setError("未找到行程数据")
         }
       } catch (err) {
         console.error("获取行程数据失败:", err)
@@ -141,20 +182,30 @@ export default function TripResultPage() {
   }, [])
 
   const handleConfirmTrip = () => {
-    tripAPI.confirmTrip(trip).then((res) => {
-      if (res.status === 200) {
-        toast({
-          title: "行程确认成功",
-          description: "行程已确认，请等待审核",
-        })
-        router.push("/trip")
-      } else {
+    if (!trip) return
+    tripAPI
+      .confirmTrip(trip)
+      .then((res) => {
+        if (res.status === 200) {
+          toast({
+            title: "行程确认成功",
+            description: "行程已确认，请等待审核",
+          })
+          router.push("/trip")
+        } else {
+          toast({
+            title: "行程确认失败",
+            description: "请稍后再试",
+          })
+        }
+      })
+      .catch((err) => {
+        console.error("确认行程失败:", err)
         toast({
           title: "行程确认失败",
-          description: "请稍后再试",
+          description: "网络异常，请稍后重试",
         })
-      }
-    })
+      })
   }
 
   const toggleSave = () => {
@@ -202,8 +253,6 @@ export default function TripResultPage() {
       </div>
     )
   }
-
-  console.log("tripWithLocations", tripWithLocations)
 
   return (
     <div className="w-full py-8">
@@ -264,32 +313,8 @@ export default function TripResultPage() {
               <CardTitle className="text-lg">行程风格</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="font-medium">
-                {trip.travelStyle === "relaxed"
-                  ? "休闲放松"
-                  : trip.travelStyle === "balanced"
-                    ? "平衡兼顾"
-                    : trip.travelStyle === "intensive"
-                      ? "密集行程"
-                      : trip.travelStyle === "adventure"
-                        ? "探险冒险"
-                        : trip.travelStyle === "cultural"
-                          ? "文化体验"
-                          : trip.travelStyle}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {trip.travelStyle === "balanced"
-                  ? "兼顾热门景点和当地体验"
-                  : trip.travelStyle === "relaxed"
-                    ? "注重休闲与放松"
-                    : trip.travelStyle === "intensive"
-                      ? "高效游览更多景点"
-                      : trip.travelStyle === "adventure"
-                        ? "注重户外和冒险体验"
-                        : trip.travelStyle === "cultural"
-                          ? "深入了解当地文化"
-                          : ""}
-              </p>
+              <p className="font-medium">{getTravelStyleMeta(trip.travelStyle).label}</p>
+              <p className="text-sm text-muted-foreground">{getTravelStyleMeta(trip.travelStyle).description}</p>
             </CardContent>
           </Card>
         </div>

@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server"
-import { RecommendationService } from "@/server/controllers"
-
-const recommendationService = new RecommendationService()
+import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
 
 export async function GET(request: Request) {
   try {
-    const results = await recommendationService.getAIRecommendations()
+    const { searchParams } = new URL(request.url)
+    const destination = searchParams.get("destination") || "热门城市"
+    const results = await proxyJsonToPythonAgent(
+      `/v1/recommendations/ai?destination=${encodeURIComponent(destination)}`
+    )
     return NextResponse.json(results)
   } catch (error) {
     console.error("❌ Failed to fetch recommendations:", error)

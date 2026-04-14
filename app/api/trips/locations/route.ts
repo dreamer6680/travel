@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { enhanceTripWithLocations } from "@/lib/services/trip-location-enhancer"
+import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
 
 /**
  * POST /api/trips/locations
@@ -25,8 +25,10 @@ export async function POST(request: Request) {
       )
     }
 
-    // 增强行程数据，添加地点信息
-    const tripWithLocations = await enhanceTripWithLocations(trip)
+    const tripWithLocations = await proxyJsonToPythonAgent("/v1/trips/locations", {
+      method: "POST",
+      body: JSON.stringify({ trip }),
+    })
 
     return NextResponse.json(tripWithLocations, { status: 200 })
   } catch (error) {

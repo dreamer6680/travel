@@ -1,5 +1,5 @@
 import clientPromise from "@/lib/db"
-import { saveUserPreferenceVector } from "@/lib/services/knowledge-base-service"
+import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
 
 export class UserService {
   /**
@@ -231,12 +231,14 @@ export class UserService {
         throw new Error("用户不存在")
       }
 
-      // 将偏好存储到向量数据库（异步，不阻塞主流程）
+      // 交给 Python Agent 做向量化持久化（失败不影响主流程）
       try {
-        await saveUserPreferenceVector(userId, preferences)
+        await proxyJsonToPythonAgent("/v1/users/preferences/vectorize", {
+          method: "POST",
+          body: JSON.stringify({ userId, preferences }),
+        })
       } catch (error) {
-        // 向量存储失败不影响偏好设置的更新
-        console.warn("保存用户偏好向量失败（不影响偏好设置更新）:", error)
+        console.warn("调用 Python Agent 保存偏好向量失败（不影响偏好设置更新）:", error)
       }
 
       return { message: "偏好设置更新成功" }

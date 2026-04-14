@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server"
 import { TripService } from "@/server/controllers"
+import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
 
 const tripService = new TripService()
 
 export async function POST(request: Request) {
   try {
     const tripData = await request.json()
-    console.log("tripData", tripData)
-    const trip = await tripService.createTripWithAI(tripData)
+    const trip = await proxyJsonToPythonAgent("/v1/trips/generate", {
+      method: "POST",
+      body: JSON.stringify(tripData),
+    })
     return NextResponse.json(trip, { status: 201 })
   } catch (error) {
     console.error("创建行程失败:", error)

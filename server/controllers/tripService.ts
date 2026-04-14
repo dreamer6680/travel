@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/db"
+import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
 
 export class TripService {
   /**
@@ -51,187 +52,13 @@ export class TripService {
   }
 
   /**
-   * 创建行程（使用 AI 生成）
-   * 新版本：使用向量相似度匹配 + Ollama 本地 + 路线规划
+   * 创建行程（由 Python Agent 生成）
    */
   async createTripWithAI(tripData: any) {
-    try {
-      // 使用新的工作流服务
-      const { TripGenerationWorkflowService } = await import(
-        "./trip-generation-workflow.service"
-      )
-      const workflowService = new TripGenerationWorkflowService()
-
-      // 使用向量工作流（Ollama 本地），可通过 USE_VECTOR_WORKFLOW=false 关闭
-      const useNewWorkflow = process.env.USE_VECTOR_WORKFLOW !== "false"
-
-      if (useNewWorkflow) {
-        console.log("使用向量工作流生成行程（Ollama）")
-        try {
-          const result = await workflowService.generateTrip(tripData)
-          return result.trip
-        } catch (error: unknown) {
-          console.warn("向量工作流失败，降级到 Ollama 快速生成:", error)
-          return this.createTripWithAIFallback(tripData)
-        }
-      } else {
-        console.log("使用快速生成模式（Ollama）")
-        try {
-          const result = await workflowService.generateTripQuick(tripData)
-          return result.trip
-        } catch (error: unknown) {
-          console.warn("快速生成失败，使用 fallback:", error)
-          return this.createTripWithAIFallback(tripData)
-        }
-      }
-    } catch (error) {
-      console.error("新工作流失败，使用降级方案:", error)
-      // 降级到原始实现（如果新工作流失败）
-      return this.createTripWithAIFallback(tripData)
-    }
-  }
-
-  /**
-   * 降级方案：原始实现（保留向后兼容）
-   */
-  private async createTripWithAIFallback(tripData: any) {
-    const messages = `你是一位专业的旅游行程设计师，请根据以下用户需求，生成一份详细而实用的旅游行程规划。请综合考虑目的地的特色、美食、购物、交通和住宿等要素，并严格按照给定的 JSON 模板格式输出。
-
-请确保内容包括：
-- 每日行程的合理安排（按日期划分）
-- 每天不少于 2 个活动，明确时间段和类型
-- 推荐景点和活动必须与旅行风格和兴趣偏好一致
-- 提供实用的交通、住宿建议
-- 至少 3 条旅行小贴士，结合当地特色
-- 不要省略任何字段，字段顺序和结构必须与模板一致
-- 所有字段请填写具体、真实、有吸引力的内容
-- 不可以省略任何字段
-- 不可以省略任何字段
-- 不可以省略任何字段
-
----
-
-🧾 用户需求如下：
-目的地：${tripData.destination}  
-出发日期：${tripData.startDate}  
-结束日期：${tripData.endDate}  
-旅行人数：${tripData.travelers}  
-预算：${tripData.budget}元  
-旅行风格：${tripData.travelStyle}  
-兴趣偏好：${tripData.interests}
-
----
-
-📦 请使用以下 JSON 模板格式输出，字段说明仅供参考，不要原样复制，请替换为具体内容：
-
-{
-  "title": "例如：${tripData.destination}畅享美食与购物之旅",
-  "destination": "${tripData.destination}",
-  "startDate": "${tripData.startDate}",
-  "endDate": "${tripData.endDate}",
-  "travelers": ${tripData.travelers},
-  "budget": ${tripData.budget},
-  "travelStyle": "${tripData.travelStyle}",
-  "status": "confirmed",
-  "highlights": ["请列出至少 4 个${tripData.destination}的代表性景点或体验，如地标、美食街、特色市集等"],
-  "days": [
-    {
-      "day": 1,
-      "title": "例如：抵达${tripData.destination}，开启购物与美食之旅",
-      "activities": [
-        {
-          "time": "上午",
-          "title": "前往XXX市场",
-          "type": "购物",
-          "description": "探索当地特色商品，体验地道市井风情"
-        },
-        {
-          "time": "下午",
-          "title": "品尝地道美食",
-          "type": "餐厅",
-          "description": "享用当地知名餐厅的招牌菜"
-        }
-      ]
-    }
-  ],
-  "recommendations": [
-    { "name": "某某夜市", "type": "美食" },
-    { "name": "某某百货商场", "type": "购物" }
-  ],
-  "practicalInfo": {
-    "transportation": [
-      { "name": "地铁", "cost": 100, "icon": "Train" },
-      { "name": "出租车", "cost": 300, "icon": "Taxi" }
-    ],
-    "accommodation": [
-      { "name": "XX精品酒店", "cost": 1200, "icon": "Hotel" }
-    ],
-    "tips": [
-      "建议使用地铁出行，避免交通拥堵",
-      "提前预约热门餐厅，避免排队",
-      "留意景区开放时间，合理安排行程"
-    ]
-  },
-  "createdAt": "${new Date().toISOString()}",
-  "updatedAt": "${new Date().toISOString()}"
-}
-    `
-
-    const ollamaUrl = process.env.OLLAMA_API_URL || "http://localhost:11434"
-    const ollamaModel = process.env.OLLAMA_CHAT_MODEL || "qwen2.5:7b"
-    try {
-      const response = await fetch(`${ollamaUrl}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: ollamaModel,
-          prompt: messages,
-          stream: false,
-        }),
-      })
-
-      if (!response.ok) {
-        const errText = await response.text()
-        if (response.status === 404 && errText.includes("not found")) {
-          throw new Error(
-            `Ollama 模型 "${ollamaModel}" 未安装。请执行: ollama pull ${ollamaModel}\n` +
-              `或设置 OLLAMA_CHAT_MODEL 为已安装的模型（运行 ollama list 查看）。`
-          )
-        }
-        throw new Error(`Ollama API 返回错误: ${response.status} ${errText || response.statusText}`)
-      }
-
-      const data = await response.json()
-      
-      if (!data.response) {
-        throw new Error("Ollama 返回的数据格式不正确")
-      }
-
-      const pureJson = data.response
-        .replace(/^```json\s*/i, "") // 去掉开头的 ```json
-        .replace(/\s*```$/i, "") // 去掉结尾的 ```
-        .trim()
-
-      const parsed = JSON.parse(pureJson)
-      const trip = {
-        ...parsed,
-        id: Math.random().toString(36).substring(2, 15),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-
-      return trip
-    } catch (error: any) {
-      if (error?.code === "ECONNREFUSED" || error?.message?.includes("ECONNREFUSED")) {
-        throw new Error(
-          "无法连接到 Ollama 服务。请确保 Ollama 正在运行：\n" +
-          "1. 安装 Ollama: https://ollama.ai/\n" +
-          "2. 启动 Ollama 服务\n" +
-          "3. 下载模型: ollama pull qwen2.5:7b"
-        )
-      }
-      throw error
-    }
+    return proxyJsonToPythonAgent("/v1/trips/generate", {
+      method: "POST",
+      body: JSON.stringify(tripData),
+    })
   }
 
   /**

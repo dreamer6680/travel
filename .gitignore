@@ -25,3 +25,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python agent
+python-agent/.venv/
+python-agent/__pycache__/
+python-agent/**/*.pyc
+python-agent/.pytest_cache/
+python-agent/.mypy_cache/

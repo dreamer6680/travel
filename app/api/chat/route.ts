@@ -1,9 +1,7 @@
 import { NextRequest } from "next/server"
-import { ChatService } from "@/server/controllers/chatService"
+import { proxyStreamToPythonAgent } from "@/server/python-agent-client"
 
 export const runtime = "nodejs"
-
-const chatService = new ChatService()
 
 export async function POST(req: NextRequest) {
   const { dialogText } = await req.json()
@@ -16,11 +14,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const responseBody = await chatService.sendMessage(dialogText)
-    return new Response(responseBody, {
+    const upstream = await proxyStreamToPythonAgent("/v1/chat/stream", {
+      method: "POST",
+      body: JSON.stringify({ dialogText }),
+    })
+    return new Response(upstream.body, {
       status: 200,
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache, no-transform",
       },
     })
   } catch (error) {
