@@ -30,6 +30,7 @@ class ActivityModel(BaseModel):
     title: str
     type: str
     description: str
+    location: Optional[str] = None
 
 
 class DayPlanModel(BaseModel):
