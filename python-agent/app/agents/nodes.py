@@ -4,10 +4,11 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from ..config import settings
 from ..model_router import model_router
 from ..services.data_sources import data_sources
 from ..services.embedding_service import build_preference_text, embed_text
-from ..services.location_tools import geocode_name
+from ..services.location_tools import geocode_poi
 from ..services.pg_vector_store import pg_vector_store
 from ..services.routing_service import estimate_route_cost, nearest_neighbor_sort
 from ..services.trip_tools import (
@@ -271,8 +272,14 @@ async def route_agent(state: AgentState) -> AgentState:
     for a in top_attractions:
         lat = a.get("latitude")
         lng = a.get("longitude")
-        if lat is None or lng is None:
-            geo = await geocode_name(str(a.get("location") or a.get("name")), destination)
+        refresh = bool(settings.amap_web_service_key and settings.amap_refresh_existing_coords)
+        if lat is None or lng is None or refresh:
+            geo = await geocode_poi(
+                str(a.get("name") or ""),
+                str(a.get("location") or ""),
+                destination,
+                entity="attraction",
+            )
             lat, lng = geo["lat"], geo["lng"]
         geo_attractions.append({**a, "latitude": float(lat), "longitude": float(lng)})
 
@@ -281,8 +288,14 @@ async def route_agent(state: AgentState) -> AgentState:
     for h in top_hotels:
         lat = h.get("latitude")
         lng = h.get("longitude")
-        if lat is None or lng is None:
-            geo = await geocode_name(str(h.get("location") or h.get("name")), destination)
+        refresh = bool(settings.amap_web_service_key and settings.amap_refresh_existing_coords)
+        if lat is None or lng is None or refresh:
+            geo = await geocode_poi(
+                str(h.get("name") or ""),
+                str(h.get("location") or ""),
+                destination,
+                entity="hotel",
+            )
             lat, lng = geo["lat"], geo["lng"]
         geo_hotels.append({**h, "latitude": float(lat), "longitude": float(lng)})
 

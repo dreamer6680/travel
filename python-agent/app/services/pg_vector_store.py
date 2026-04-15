@@ -162,29 +162,104 @@ class PgVectorStore:
     async def lookup_attraction_coord(
         self, keyword: str, destination: str
     ) -> Dict[str, float] | None:
-        """按名称关键词查询景点坐标，用于 location_tools 的 DB 优先策略。
-
-        返回 {"lat": ..., "lng": ...} 或 None。
-        """
+        """按名称关键词查询景点坐标；必须带目的地过滤，避免短词命中其他城市。"""
         pool = await self.get_pool()
-        sql = """
-        SELECT latitude, longitude
-        FROM attraction_vectors
-        WHERE (name ILIKE $1 OR description ILIKE $1)
-          AND latitude IS NOT NULL
-          AND longitude IS NOT NULL
-        ORDER BY
-          CASE WHEN name ILIKE $1 THEN 0 ELSE 1 END,
-          rating DESC NULLS LAST
-        LIMIT 1
-        """
+        dest = (destination or "").strip()
+        kw = (keyword or "").strip()
+        if len(kw) < 2:
+            return None
+        like_kw = f"%{kw}%"
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(sql, f"%{keyword}%")
+                if dest:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT latitude, longitude
+                        FROM attraction_vectors
+                        WHERE (name ILIKE $1 OR description ILIKE $1)
+                          AND latitude IS NOT NULL AND longitude IS NOT NULL
+                          AND (
+                            location ILIKE $2
+                            OR nullif(trim(location), '') IS NULL
+                          )
+                        ORDER BY
+                          CASE WHEN name ILIKE $1 THEN 0 ELSE 1 END,
+                          CASE WHEN location ILIKE $2 THEN 0 ELSE 1 END,
+                          rating DESC NULLS LAST
+                        LIMIT 1
+                        """,
+                        like_kw,
+                        f"%{dest}%",
+                    )
+                else:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT latitude, longitude
+                        FROM attraction_vectors
+                        WHERE (name ILIKE $1 OR description ILIKE $1)
+                          AND latitude IS NOT NULL AND longitude IS NOT NULL
+                        ORDER BY
+                          CASE WHEN name ILIKE $1 THEN 0 ELSE 1 END,
+                          rating DESC NULLS LAST
+                        LIMIT 1
+                        """,
+                        like_kw,
+                    )
             if row:
                 return {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
         except Exception as exc:
             logger.debug("lookup_attraction_coord failed for '%s': %s", keyword, exc)
+        return None
+
+    async def lookup_hotel_coord(
+        self, keyword: str, destination: str
+    ) -> Dict[str, float] | None:
+        """从 hotel_vectors 按名称/地址查坐标，带目的地过滤。"""
+        pool = await self.get_pool()
+        dest = (destination or "").strip()
+        kw = (keyword or "").strip()
+        if len(kw) < 2:
+            return None
+        like_kw = f"%{kw}%"
+        try:
+            async with pool.acquire() as conn:
+                if dest:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT latitude, longitude
+                        FROM hotel_vectors
+                        WHERE (name ILIKE $1 OR address ILIKE $1 OR description ILIKE $1
+                               OR position_desc ILIKE $1)
+                          AND latitude IS NOT NULL AND longitude IS NOT NULL
+                          AND (
+                            location ILIKE $2
+                            OR nullif(trim(location), '') IS NULL
+                          )
+                        ORDER BY
+                          CASE WHEN location ILIKE $2 THEN 0 ELSE 1 END,
+                          rating DESC NULLS LAST
+                        LIMIT 1
+                        """,
+                        like_kw,
+                        f"%{dest}%",
+                    )
+                else:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT latitude, longitude
+                        FROM hotel_vectors
+                        WHERE (name ILIKE $1 OR address ILIKE $1 OR description ILIKE $1
+                               OR position_desc ILIKE $1)
+                          AND latitude IS NOT NULL AND longitude IS NOT NULL
+                        ORDER BY rating DESC NULLS LAST
+                        LIMIT 1
+                        """,
+                        like_kw,
+                    )
+            if row:
+                return {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
+        except Exception as exc:
+            logger.debug("lookup_hotel_coord failed for '%s': %s", keyword, exc)
         return None
 
     async def upsert_user_preference_vector(

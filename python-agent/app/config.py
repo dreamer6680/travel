@@ -28,6 +28,10 @@ class Settings:
         f"{os.getenv('POSTGRES_DB', 'travel_vectors')}",
     )
     amap_web_service_key: str = os.getenv("AMAP_WEB_SERVICE_KEY", os.getenv("NEXT_PUBLIC_AMAP_KEY", ""))
+    # 为 True 时，行程路线节点会用高德重新解析坐标（覆盖 PG 里可能错误或 BD09 偏差）
+    amap_refresh_existing_coords: bool = os.getenv(
+        "AMAP_REFRESH_EXISTING_COORDS", ""
+    ).lower() in ("1", "true", "yes")
 
 
 settings = Settings()
