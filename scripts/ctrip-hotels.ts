@@ -81,24 +81,95 @@ export interface CtripHotelsResponse {
 const GET_AD_HOTELS_URL = "https://m.ctrip.com/restapi/soa2/34951/getAdHotels"
 const FETCH_HOTEL_LIST_URL = "https://m.ctrip.com/restapi/soa2/34951/fetchHotelList"
 
-function getCtripHeaders(phantomToken: string, cookie: string): Record<string, string> {
+function normalizeEnv(v?: string) {
+  return (v ?? "")
+    .replace(/[\r\n\t]/g, "")
+    .trim()
+    .replace(/^["']/, "")
+    .replace(/["']$/, "")
+}
+
+function randomHex(len = 32) {
+  const chars = "0123456789abcdef"
+  let out = ""
+  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
+
+function extractCookieValue(cookie: string, key: string): string {
+  const parts = cookie.split(";")
+  for (const part of parts) {
+    const [k, ...rest] = part.trim().split("=")
+    if (k === key) return rest.join("=")
+  }
+  return ""
+}
+
+function getClientContext() {
+  const cookie = normalizeEnv(process.env.CTRIP_COOKIE)
+  const cookieVid = extractCookieValue(cookie, "UBT_VID")
+  const vid = normalizeEnv(process.env.UBT_VID) || cookieVid || `${Date.now()}.${randomHex(10)}`
+  const pageId = normalizeEnv(process.env.CTRIP_PAGE_ID) || "10650171192"
+  const sid = normalizeEnv(process.env.CTRIP_SID) || "130727"
+  const aid = normalizeEnv(process.env.CTRIP_AID) || "4902"
+  return { vid, pageId, sid, aid }
+}
+
+function formatYmdCompact(date: Date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}${m}${d}`
+}
+
+function formatYmdSlash(date: Date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}/${m}/${d}`
+}
+
+function getDefaultStayDates() {
+  const inDate = new Date()
+  const outDate = new Date()
+  outDate.setDate(outDate.getDate() + 1)
+  return {
+    checkInCompact: formatYmdCompact(inDate),
+    checkOutCompact: formatYmdCompact(outDate),
+    checkInSlash: formatYmdSlash(inDate),
+    checkOutSlash: formatYmdSlash(outDate),
+  }
+}
+
+function getCtripHeaders(
+  phantomToken: string,
+  cookie: string,
+  ctx: { vid: string; pageId: string; sid: string }
+): Record<string, string> {
   const headers: Record<string, string> = {
     accept: "application/json",
-    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
     "content-type": "application/json",
+    cookieorigin: "https://hotels.ctrip.com",
     origin: "https://hotels.ctrip.com",
+    priority: "u=1, i",
     referer: "https://hotels.ctrip.com/",
-    "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    "sec-ch-ua": '"Microsoft Edge";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
     "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
+    "sec-ch-ua-platform": '"macOS"',
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-site",
     "user-agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
     "x-ctx-country": "CN",
     "x-ctx-currency": "CNY",
     "x-ctx-locale": "zh-CN",
+    "x-ctx-ubt-pageid": ctx.pageId,
+    "x-ctx-ubt-pvid": String(Math.floor(Math.random() * 100) + 1),
+    "x-ctx-ubt-sid": "1",
+    "x-ctx-ubt-vid": ctx.vid,
+    "x-ctx-wclient-req": randomHex(32),
   }
   if (phantomToken) headers["phantom-token"] = phantomToken
   if (cookie) headers["cookie"] = cookie
@@ -106,27 +177,28 @@ function getCtripHeaders(phantomToken: string, cookie: string): Record<string, s
 }
 
 function getDefaultHead(cityId: number, checkIn?: string, checkOut?: string) {
-  const cid = "1762097326536.3902IvJwJuDt"
+  const ctx = getClientContext()
+  const d = getDefaultStayDates()
   return {
     platform: "PC",
     cver: "0",
-    cid,
+    cid: ctx.vid,
     bu: "HBU",
     group: "ctrip",
-    aid: "4902",
-    sid: "22921635",
+    aid: ctx.aid,
+    sid: ctx.sid,
     ouid: "",
     locale: "zh-CN",
     timezone: "8",
     currency: "CNY",
-    pageId: "10650171192",
-    vid: cid,
+    pageId: ctx.pageId,
+    vid: ctx.vid,
     guid: "",
     isSSR: false,
     extension: [
       { name: "cityId", value: String(cityId) },
-      { name: "checkIn", value: checkIn || "2026/03/16" },
-      { name: "checkOut", value: checkOut || "2026/03/17" },
+      { name: "checkIn", value: checkIn || d.checkInSlash },
+      { name: "checkOut", value: checkOut || d.checkOutSlash },
       { name: "region", value: "CN" },
     ],
   }
@@ -139,8 +211,9 @@ export async function fetchCtripAdHotels(
   cityId: number,
   options?: { checkIn?: string; checkOut?: string }
 ): Promise<CtripHotelItem[]> {
-  const phantomToken = process.env.CTRIP_PHANTOM_TOKEN
-  const cookie = process.env.CTRIP_COOKIE || ""
+  const phantomToken = normalizeEnv(process.env.CTRIP_PHANTOM_TOKEN)
+  const cookie = normalizeEnv(process.env.CTRIP_COOKIE)
+  const ctx = getClientContext()
 
   const body = {
     cityId,
@@ -152,7 +225,7 @@ export async function fetchCtripAdHotels(
     ),
   }
 
-  const headers = getCtripHeaders(phantomToken ?? "", cookie)
+  const headers = getCtripHeaders(phantomToken, cookie, ctx)
 
   const res = await fetch(GET_AD_HOTELS_URL, {
     method: "POST",
@@ -255,20 +328,22 @@ export async function fetchCtripHotelList(
     sessionId?: string
   }
 ): Promise<{ hotels: CtripHotelItem[]; isLastPage: boolean }> {
-  const phantomToken = process.env.CTRIP_PHANTOM_TOKEN ?? ""
-  const cookie = process.env.CTRIP_COOKIE ?? ""
-  const checkIn = options?.checkIn ?? "2026/03/16"
-  const checkOut = options?.checkOut ?? "2026/03/17"
+  const phantomToken = normalizeEnv(process.env.CTRIP_PHANTOM_TOKEN)
+  const cookie = normalizeEnv(process.env.CTRIP_COOKIE)
+  const ctx = getClientContext()
+  const d = getDefaultStayDates()
+  const checkIn = options?.checkIn ?? d.checkInSlash
+  const checkOut = options?.checkOut ?? d.checkOutSlash
   const pageIndex = options?.pageIndex ?? 1
   const pageSize = options?.pageSize ?? 10
-  const sessionId = options?.sessionId ?? ""
+  const sessionId = options?.sessionId ?? randomHex(32)
 
   const body = {
     date: {
       dateType: 1,
       dateInfo: {
-        checkInDate: checkIn.replace(/\D/g, "").slice(0, 8),
-        checkOutDate: checkOut.replace(/\D/g, "").slice(0, 8),
+        checkInDate: checkIn.replace(/\D/g, "").slice(0, 8) || d.checkInCompact,
+        checkOutDate: checkOut.replace(/\D/g, "").slice(0, 8) || d.checkOutCompact,
       },
     },
     destination: {
@@ -279,21 +354,21 @@ export async function fetchCtripHotelList(
     extraFilter: {
       childInfoItems: [],
       ctripMainLandBDCoordinate: true,
-      sessionId: sessionId || undefined,
+      sessionId,
       extendableParams: { tripWalkDriveSwitch: "T", isUgcSentenceB: "" },
     },
     filters: [
-      { type: "17", title: " ", value: "1", filterId: "17|1" },
+      { type: "17", title: "欢迎度排序", value: "1", filterId: "17|1" },
       { type: "80", title: "", value: "2", filterId: "80|2" },
       { filterId: "29|1", type: "29", value: "1|1" },
     ],
     roomQuantity: 1,
     marketInfo: {},
-    paging: { pageIndex, pageSize, pageCode: "10650171192" },
+    paging: { pageIndex, pageSize, pageCode: ctx.pageId },
     head: getDefaultHead(cityId, checkIn, checkOut),
   }
 
-  const headers = getCtripHeaders(phantomToken, cookie)
+  const headers = getCtripHeaders(phantomToken, cookie, ctx)
 
   const res = await fetch(FETCH_HOTEL_LIST_URL, {
     method: "POST",

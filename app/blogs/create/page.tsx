@@ -1,24 +1,31 @@
 "use client"
 
-import { useState } from "react"
+import "@wangeditor-next/editor/dist/css/style.css"
+
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save, Eye, Upload, X, Plus, Loader2 } from "lucide-react"
+import { ArrowLeft, Save, Eye, X, Plus, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { blogAPI } from "@/lib/api"
 
+type WangEditorModule = typeof import("@wangeditor-next/editor-for-react")
+
 export default function CreateBlogPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const [uploadBlogId] = useState(() => `draft-${Math.random().toString(36).slice(2, 10)}`)
   const [isLoading, setIsLoading] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
+  const [editor, setEditor] = useState<any>(null)
+  const [isClient, setIsClient] = useState(false)
+  const [wangModule, setWangModule] = useState<WangEditorModule | null>(null)
 
   const [formData, setFormData] = useState({
     title: "",
@@ -30,7 +37,91 @@ export default function CreateBlogPage() {
   })
 
   const [newTag, setNewTag] = useState("")
-  const [newImageUrl, setNewImageUrl] = useState("")
+  const maxUploadSizeMb = 5
+  const maxUploadSizeBytes = maxUploadSizeMb * 1024 * 1024
+  const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"])
+  const toolbarConfig = {}
+  const editorConfig: any = {
+    placeholder: "请输入游记内容...",
+    MENU_CONF: {
+      uploadImage: {
+        async customUpload(file: File, insertFn: (url: string, alt?: string, href?: string) => void) {
+          if (!allowedImageTypes.has(file.type)) {
+            toast({
+              title: "图片格式不支持",
+              description: "仅支持 jpg / png / webp",
+              variant: "destructive",
+            })
+            throw new Error("图片格式不支持")
+          }
+          if (file.size > maxUploadSizeBytes) {
+            toast({
+              title: "图片过大",
+              description: `单张图片不能超过 ${maxUploadSizeMb}MB`,
+              variant: "destructive",
+            })
+            throw new Error("图片过大")
+          }
+
+          const formData = new FormData()
+          formData.append("file", file)
+          formData.append("blogId", uploadBlogId)
+
+          const res = await fetch("/api/uploads/images", {
+            method: "POST",
+            body: formData,
+          })
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => null)
+            throw new Error(err?.error || "上传图片失败")
+          }
+
+          const data = await res.json()
+          if (!data?.url) {
+            throw new Error("图片地址无效")
+          }
+
+          insertFn(data.url, file.name, data.url)
+          toast({
+            title: "图片上传成功",
+            description: "已插入到正文中",
+          })
+        },
+      },
+    },
+  }
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isClient) return
+
+    let isMounted = true
+    import("@wangeditor-next/editor-for-react")
+      .then((mod) => {
+        if (isMounted) {
+          setWangModule(mod)
+        }
+      })
+      .catch((error) => {
+        console.error("加载富文本编辑器失败", error)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [isClient])
+
+  useEffect(() => {
+    return () => {
+      if (editor == null) return
+      editor.destroy()
+      setEditor(null)
+    }
+  }, [editor])
 
   const handleSubmit = async (status: "draft" | "published") => {
     if (!formData.title.trim() || !formData.content.trim()) {
@@ -78,57 +169,6 @@ export default function CreateBlogPage() {
     setFormData({
       ...formData,
       tags: formData.tags.filter((tag) => tag !== tagToRemove),
-    })
-  }
-
-  const addImage = () => {
-    if (newImageUrl.trim() && !formData.images.includes(newImageUrl.trim())) {
-      setFormData({
-        ...formData,
-        images: [...formData.images, newImageUrl.trim()],
-      })
-      setNewImageUrl("")
-    }
-  }
-
-  const removeImage = (imageToRemove: string) => {
-    setFormData({
-      ...formData,
-      images: formData.images.filter((img) => img !== imageToRemove),
-    })
-  }
-
-  const formatContent = (content: string) => {
-    return content.split("\n").map((line, index) => {
-      if (line.startsWith("# ")) {
-        return (
-          <h1 key={index} className="text-3xl font-bold mt-8 mb-4 first:mt-0">
-            {line.substring(2)}
-          </h1>
-        )
-      }
-      if (line.startsWith("## ")) {
-        return (
-          <h2 key={index} className="text-2xl font-semibold mt-6 mb-3">
-            {line.substring(3)}
-          </h2>
-        )
-      }
-      if (line.startsWith("### ")) {
-        return (
-          <h3 key={index} className="text-xl font-medium mt-4 mb-2">
-            {line.substring(4)}
-          </h3>
-        )
-      }
-      if (line.trim() === "") {
-        return <br key={index} />
-      }
-      return (
-        <p key={index} className="mb-4 leading-relaxed">
-          {line}
-        </p>
-      )
     })
   }
 
@@ -195,7 +235,7 @@ export default function CreateBlogPage() {
                     )}
                     <div className="prose prose-lg max-w-none">
                       {formData.content ? (
-                        formatContent(formData.content)
+                        <div dangerouslySetInnerHTML={{ __html: formData.content }} />
                       ) : (
                         <p className="text-muted-foreground">游记内容将在这里显示...</p>
                       )}
@@ -226,22 +266,36 @@ export default function CreateBlogPage() {
 
                     <div>
                       <Label htmlFor="content">游记内容 *</Label>
-                      <Textarea
-                        id="content"
-                        placeholder="分享您的旅行故事...
-
-支持Markdown格式：
-# 一级标题
-## 二级标题
-### 三级标题
-
-普通段落文本..."
-                        value={formData.content}
-                        onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                        rows={20}
-                        className="font-mono"
-                      />
-                      <p className="text-sm text-muted-foreground mt-2">支持Markdown格式，使用#创建标题</p>
+                      <div className="mt-2 border rounded-md overflow-hidden">
+                        {isClient && wangModule ? (
+                          <>
+                            <wangModule.Toolbar
+                              editor={editor}
+                              defaultConfig={toolbarConfig}
+                              mode="default"
+                              style={{ borderBottom: "1px solid #e5e7eb" }}
+                            />
+                            <wangModule.Editor
+                              defaultConfig={editorConfig}
+                              value={formData.content}
+                              onCreated={setEditor}
+                              onChange={(currentEditor) =>
+                                setFormData({
+                                  ...formData,
+                                  content: currentEditor.getHtml(),
+                                })
+                              }
+                              mode="default"
+                              style={{ height: "500px", overflowY: "auto" }}
+                            />
+                          </>
+                        ) : (
+                          <div className="h-[500px] flex items-center justify-center text-sm text-muted-foreground">
+                            编辑器加载中...
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-2">支持富文本编辑</p>
                     </div>
                   </>
                 )}
@@ -279,54 +333,6 @@ export default function CreateBlogPage() {
                     ))}
                   </div>
                   {formData.tags.length === 0 && <p className="text-sm text-muted-foreground">暂无标签</p>}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 图片管理 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">图片</CardTitle>
-                <CardDescription>添加旅行照片让游记更生动</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="图片URL"
-                      value={newImageUrl}
-                      onChange={(e) => setNewImageUrl(e.target.value)}
-                      onKeyPress={(e) => e.key === "Enter" && addImage()}
-                    />
-                    <Button size="sm" onClick={addImage}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    {formData.images.map((image, index) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={image || "/placeholder.svg"}
-                          alt={`图片 ${index + 1}`}
-                          className="w-full h-24 object-cover rounded"
-                        />
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => removeImage(image)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                  {formData.images.length === 0 && (
-                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
-                      <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">暂无图片</p>
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>

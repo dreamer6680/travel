@@ -45,6 +45,22 @@ services:
       retries: 5
       start_period: 10s
 
+  minio:
+    image: minio/minio:latest
+    container_name: travel-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-12345678}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - travel-network
+
   # 数据库初始化服务（仅在首次启动时运行）
   db-init:
     image: node:20-alpine
@@ -71,6 +87,8 @@ volumes:
   mongodb_data:
     driver: local
   postgres_data:
+    driver: local
+  minio_data:
     driver: local
   node_modules:
     driver: local

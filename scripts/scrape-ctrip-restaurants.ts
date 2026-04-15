@@ -1,13 +1,10 @@
 #!/usr/bin/env tsx
 /**
- * 爬取携程餐厅/美食相关 POI 并写入 MongoDB Restaurants 集合
- * 数据源：m.ctrip.com getAttractionList（与景点同源），通过关键词筛选餐饮类 POI。
- * 携程未公开独立「美食列表」接口时，这是可行方案；需要更多数据请用默认「宽松」模式。
+ * 爬取餐厅并写入 MongoDB Restaurants 集合
+ * 策略：先抓携程 POI（餐饮过滤），数量不足时自动补抓高德 POI，保证可达目标条数。
  *
  * 用法:
- *   npx tsx scripts/scrape-ctrip-restaurants.ts [districtId] [pages] [--strict]
- *   --strict  仅保留名称/标签强匹配餐饮（条数少、精度高）
- *   默认      宽松匹配（扩展词表 + 排除博物馆/公园等非餐饮「馆/园」）
+ *   npx tsx scripts/scrape-ctrip-restaurants.ts [districtId] [--target=200] [--maxPages=80] [--strict]
  */
 import "./load-env-local"
 import axios from "axios"
@@ -22,12 +19,43 @@ interface RestaurantDoc {
   description: string
   imageUrl: string
   likes: number
+  source?: "ctrip" | "amap"
+  sourceId?: string
   coordinate?: {
     latitude: number
     longitude: number
     coordinateType: string
   }
   scrapedAt: string
+}
+
+const DISTRICT_CITY: Record<number, string> = {
+  1: "北京",
+  2: "上海",
+  3: "广州",
+  4: "深圳",
+  8: "杭州",
+  10: "南京",
+  17: "成都",
+  18: "重庆",
+  23: "西安",
+  25: "苏州",
+}
+
+function getArg(name: string, fallback: number): number {
+  const raw = process.argv.find((a) => a.startsWith(`--${name}=`))
+  if (!raw) return fallback
+  const val = Number(raw.split("=")[1])
+  return Number.isFinite(val) && val > 0 ? Math.floor(val) : fallback
+}
+
+function hashToPositiveInt(input: string): number {
+  let h = 0
+  for (let i = 0; i < input.length; i++) {
+    h = (h << 5) - h + input.charCodeAt(i)
+    h |= 0
+  }
+  return Math.abs(h || 1)
 }
 
 /** 旧版窄匹配，条数通常很少 */
@@ -44,9 +72,6 @@ function isLikelyNonRestaurant(name: string, tags: string[]) {
   )
 }
 
-/**
- * 宽松：扩展菜系/业态词 + 常见餐饮后缀；仍排除明显景点类 POI
- */
 function isRestaurantLoose(tags: string[], name: string, shortFeatures: string) {
   if (isLikelyNonRestaurant(name, tags)) return false
   const text = `${name} ${shortFeatures}`
@@ -70,11 +95,7 @@ function isRestaurantLoose(tags: string[], name: string, shortFeatures: string) 
   return tags.some((t) => loose.test(t)) || loose.test(text) || nameSuffix.test(name.trim())
 }
 
-async function fetchRestaurantPage(
-  page: number,
-  districtId: number,
-  strict: boolean
-): Promise<RestaurantDoc[]> {
+async function fetchRestaurantPage(page: number, districtId: number, strict: boolean) {
   const cid = "09031018114344642561"
   const traceID = `${cid}-${Date.now()}-${Math.floor(Math.random() * 10000000)}`
   const url = `https://m.ctrip.com/restapi/soa2/18109/json/getAttractionList?_fxpcqlniredt=${cid}&x-traceID=${traceID}`
@@ -95,7 +116,7 @@ async function fetchRestaurantPage(
     districtId,
     index: page,
     sortType: 1,
-    count: 10,
+    count: 20,
     filter: { filterItems: [] },
     returnModuleType: "product",
   }
@@ -109,6 +130,7 @@ async function fetchRestaurantPage(
       "user-agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
     },
+    timeout: 15000,
   })
 
   const list = response.data?.attractionList || []
@@ -123,68 +145,197 @@ async function fetchRestaurantPage(
         ? isRestaurantStrict(tags, `${name} ${feat}`)
         : isRestaurantLoose(tags, name, feat)
     })
-    .map((card: any) => ({
-      id: Number(card.poiId),
-      name: String(card.poiName || ""),
-      location: String(card.districtName || ""),
-      rating: Number(card.commentScore || 0),
-      type:
-        (Array.isArray(card.tagNameList) && card.tagNameList[0]) || "餐厅",
-      description: String(card.shortFeatures || ""),
-      imageUrl: String(card.coverImageUrl || ""),
-      likes: Number(card.commentCount || 0),
-      coordinate: card.coordinate
-        ? {
-            latitude: Number(card.coordinate.latitude),
-            longitude: Number(card.coordinate.longitude),
-            coordinateType: String(card.coordinate.coordinateType || "BD09"),
-          }
-        : undefined,
-      scrapedAt: new Date().toISOString(),
-    }))
+    .map(
+      (card: any): RestaurantDoc => ({
+        id: Number(card.poiId),
+        sourceId: String(card.poiId),
+        source: "ctrip",
+        name: String(card.poiName || ""),
+        location: String(card.districtName || ""),
+        rating: Number(card.commentScore || 0),
+        type: (Array.isArray(card.tagNameList) && card.tagNameList[0]) || "餐厅",
+        description: String(card.shortFeatures || ""),
+        imageUrl: String(card.coverImageUrl || ""),
+        likes: Number(card.commentCount || 0),
+        coordinate: card.coordinate
+          ? {
+              latitude: Number(card.coordinate.latitude),
+              longitude: Number(card.coordinate.longitude),
+              coordinateType: String(card.coordinate.coordinateType || "BD09"),
+            }
+          : undefined,
+        scrapedAt: new Date().toISOString(),
+      })
+    )
+}
+
+async function fetchRestaurantPageWithRetry(page: number, districtId: number, strict: boolean) {
+  let lastErr: unknown = null
+  for (let i = 1; i <= 3; i++) {
+    try {
+      return await fetchRestaurantPage(page, districtId, strict)
+    } catch (e) {
+      lastErr = e
+      console.warn(`⚠️ 餐厅第 ${page} 页请求失败（第 ${i}/3 次），准备重试`)
+      await new Promise((r) => setTimeout(r, 1200 * i))
+    }
+  }
+  throw lastErr
+}
+
+async function fetchAmapRestaurants(city: string, needed: number): Promise<RestaurantDoc[]> {
+  const key = (process.env.AMAP_WEB_SERVICE_KEY || "").trim()
+  if (!key || needed <= 0) return []
+
+  const keywords = ["餐厅", "美食", "小吃", "火锅", "咖啡", "烧烤", "日料", "粤菜"]
+  const seenAmap = new Set<string>()
+  const out: RestaurantDoc[] = []
+
+  for (const kw of keywords) {
+    for (let page = 1; page <= 45 && out.length < needed; page++) {
+      const url = "https://restapi.amap.com/v3/place/text"
+      const res = await axios.get(url, {
+        params: {
+          key,
+          keywords: kw,
+          city,
+          citylimit: true,
+          offset: 20,
+          page,
+          extensions: "base",
+          types: "050000",
+        },
+        timeout: 12000,
+      })
+      const pois: any[] = Array.isArray(res.data?.pois) ? res.data.pois : []
+      if (pois.length === 0) break
+
+      let added = 0
+      for (const poi of pois) {
+        const sid = String(poi.id || "")
+        if (!sid || seenAmap.has(sid)) continue
+        seenAmap.add(sid)
+
+        const loc = String(poi.location || "")
+        const [lngS, latS] = loc.split(",")
+        const lng = Number(lngS)
+        const lat = Number(latS)
+
+        out.push({
+          id: hashToPositiveInt(`amap:${sid}`),
+          source: "amap",
+          sourceId: sid,
+          name: String(poi.name || ""),
+          location: String(poi.address || poi.pname || city || ""),
+          rating: 0,
+          type: String(poi.type || "餐厅"),
+          description: String(poi.type || "高德餐饮POI"),
+          imageUrl: "",
+          likes: 0,
+          coordinate:
+            Number.isFinite(lat) && Number.isFinite(lng)
+              ? {
+                  latitude: lat,
+                  longitude: lng,
+                  coordinateType: "GCJ02",
+                }
+              : undefined,
+          scrapedAt: new Date().toISOString(),
+        })
+        added++
+        if (out.length >= needed) break
+      }
+      console.log(`🧭 Amap(${kw}) 第${page}页: +${added}/${pois.length}，累计 ${out.length}/${needed}`)
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    if (out.length >= needed) break
+  }
+
+  return out
 }
 
 function parseArgs() {
   const argv = process.argv.slice(2)
   const strict = argv.includes("--strict") || argv.some((a) => a === "--mode=strict")
-  const nums = argv
-    .filter((a) => !a.startsWith("--"))
-    .map((a) => Number(a))
-    .filter((n) => !Number.isNaN(n))
-  const districtId = nums[0] ?? 2
-  const pages = nums[1] ?? 10
-  return { districtId, pages, strict }
+  const districtId = Number(argv.find((a) => !a.startsWith("--")) || "2")
+  const target = getArg("target", 200)
+  const maxPages = getArg("maxPages", 80)
+  return {
+    districtId: Number.isFinite(districtId) ? districtId : 2,
+    target,
+    maxPages,
+    strict,
+  }
 }
 
 async function main() {
-  const { districtId, pages, strict } = parseArgs()
+  const { districtId, target, maxPages, strict } = parseArgs()
+  const city = DISTRICT_CITY[districtId] || "上海"
   if (!strict) {
     console.log("📌 使用宽松餐饮匹配（--strict 可改为窄匹配、条数更少）")
   }
+
   const client = await clientPromise
   const db = client.db(MONGODB_DB_NAME)
   const collection = db.collection<RestaurantDoc>("Restaurants")
-  const seen = new Set<number>()
-  let total = 0
 
-  for (let page = 1; page <= pages; page++) {
-    const rows = await fetchRestaurantPage(page, districtId, strict)
+  const seen = new Set<number>()
+  const collected: RestaurantDoc[] = []
+  let consecutiveEmpty = 0
+
+  for (let page = 1; page <= maxPages && collected.length < target; page++) {
+    const rows = await fetchRestaurantPageWithRetry(page, districtId, strict)
+    let newlyAdded = 0
     for (const row of rows) {
       if (seen.has(row.id)) continue
       seen.add(row.id)
-      await collection.updateOne(
-        { id: row.id },
-        { $set: row },
-        { upsert: true }
-      )
-      total++
+      collected.push(row)
+      newlyAdded++
+      if (collected.length >= target) break
     }
-    console.log(`🍜 餐厅爬取: 第${page}页，累计 ${total}`)
-    if (page < pages) await new Promise((r) => setTimeout(r, 1200))
+
+    console.log(`🍜 Ctrip: 第${page}页，新增 ${newlyAdded}/${rows.length}，累计 ${collected.length}/${target}`)
+    if (newlyAdded === 0) consecutiveEmpty++
+    else consecutiveEmpty = 0
+
+    if (consecutiveEmpty >= 3) break
+    await new Promise((r) => setTimeout(r, 1200))
   }
 
-  await client.close()
-  console.log(`✅ 餐厅数据入库完成，共 ${total} 条`)
+  if (collected.length < target) {
+    const needed = target - collected.length
+    console.log(`📉 携程不足 ${target}，改用高德补齐，需补 ${needed} 条...`)
+    const amapRows = await fetchAmapRestaurants(city, needed)
+    for (const row of amapRows) {
+      if (seen.has(row.id)) continue
+      seen.add(row.id)
+      collected.push(row)
+      if (collected.length >= target) break
+    }
+  }
+
+  const docs = collected.slice(0, target)
+  if (docs.length === 0) {
+    console.log("❌ 未获取到餐厅数据，建议稍后重试或检查 AMAP_WEB_SERVICE_KEY")
+    return
+  }
+
+  const ops = docs.map((row) => ({
+    updateOne: {
+      filter: row.sourceId ? { source: row.source, sourceId: row.sourceId } : { id: row.id },
+      update: { $set: row },
+      upsert: true,
+    },
+  }))
+
+  const result = await collection.bulkWrite(ops, { ordered: false })
+  const inDb = await collection.countDocuments({})
+
+  const ctripCount = docs.filter((d) => d.source === "ctrip").length
+  const amapCount = docs.filter((d) => d.source === "amap").length
+  console.log(
+    `✅ 餐厅数据入库完成，本次 ${docs.length} 条（ctrip=${ctripCount}, amap=${amapCount}），upserted=${result.upsertedCount} modified=${result.modifiedCount}，库内总数=${inDb}`
+  )
 }
 
 main().catch((e) => {
