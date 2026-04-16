@@ -2,6 +2,57 @@
 
 ## 🚀 一键启动数据库并初始化
 
+## 🚀🚀 全栈一键启动（Next + Python Agent + Ollama + Redis + DB）
+
+### 1) 准备环境变量（推荐 `.env.local`）
+
+至少补齐这些配置：
+
+```env
+JWT_SECRET=replace-with-strong-secret
+
+# Python Agent 调用 Ollama 模型
+OLLAMA_CHAT_MODEL=qwen2.5:7b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+
+# 可选：如果要走 OpenAI 兜底
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+### 2) 启动全套服务
+
+```bash
+# 首次（含构建）
+docker compose up -d --build
+
+# 首次拉取模型（可选 profile，建议执行一次）
+docker compose --profile init up ollama-init
+```
+
+### 3) 访问服务
+
+- Next.js 应用: `http://127.0.0.1:3000`
+- Python Agent: `http://127.0.0.1:8000/healthz`
+- Ollama: `http://127.0.0.1:11434/api/tags`
+- MinIO Console: `http://127.0.0.1:9001`
+
+### 4) 常用运维命令
+
+```bash
+# 查看所有服务日志
+docker compose logs -f
+
+# 仅看应用日志
+docker compose logs -f app python-agent ollama
+
+# 停止并保留数据卷
+docker compose down
+
+# 停止并删除卷（谨慎：会清空 Mongo/PG/MinIO/Redis/Ollama 数据）
+docker compose down -v
+```
+
 ### 方式1: 使用 npm 脚本（最简单）
 
 ```bash
