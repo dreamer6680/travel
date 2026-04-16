@@ -1,0 +1,80 @@
+# 本地开发：从源码构建 app + python-agent。
+# 与 deploy/docker-compose.infra.yml 一起由根目录 docker-compose.yml include。
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: travel-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGO_ROOT_PASSWORD:-password123}@mongodb:27017/?authSource=admin
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-trip}
+      POSTGRES_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-travel_vectors}
+      PYTHON_AGENT_BASE_URL: http://python-agent:8000
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-12345678}
+      MINIO_BUCKET: ${MINIO_BUCKET:-travel-assets}
+      NEXT_PUBLIC_MINIO_PUBLIC_BASE_URL: ${NEXT_PUBLIC_MINIO_PUBLIC_BASE_URL:-http://127.0.0.1:9000/travel-assets}
+      OPENROUTESERVICE_API_KEY: ${OPENROUTESERVICE_API_KEY:-}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      python-agent:
+        condition: service_healthy
+    networks:
+      - travel-network
+
+  python-agent:
+    build:
+      context: ..
+      dockerfile: python-agent/Dockerfile
+    container_name: travel-python-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      PY_AGENT_LOG_LEVEL: ${PY_AGENT_LOG_LEVEL:-INFO}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_FALLBACK_PROVIDER: ${LLM_FALLBACK_PROVIDER:-openai}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-travel_vectors}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - travel-network

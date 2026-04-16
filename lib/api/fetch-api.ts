@@ -1,5 +1,6 @@
-// API基础URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api"
+// 浏览器请求的 BFF 前缀：默认与当前站点同源（/api → Next 的 app/api），Docker 任意端口都可用。
+// 仅当前端与 API 不同源时再设置 NEXT_PUBLIC_API_URL（须带 /api 后缀）。
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
 
 /**
  * 获取存储的 Token

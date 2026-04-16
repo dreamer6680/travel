@@ -1,0 +1,16 @@
+# 与根目录 docker-compose.yml 合并使用，在 Mac 上强制按 Linux 平台构建 app / agent，
+# 便于在 Ubuntu（常见为 amd64）上运行。ARM 服务器可设 DOCKER_PLATFORM=linux/arm64 后：
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.build-linux.yml build --no-cache app python-agent
+#
+# 或使用脚本（推荐，等同 buildx --platform）：./deploy/build-for-ubuntu.sh
+
+services:
+  app:
+    build:
+      platforms:
+        - ${DOCKER_PLATFORM:-linux/amd64}
+
+  python-agent:
+    build:
+      platforms:
+        - ${DOCKER_PLATFORM:-linux/amd64}

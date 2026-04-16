@@ -8,7 +8,7 @@
     "agent:install": "python3 -m venv python-agent/.venv && python-agent/.venv/bin/pip install -r python-agent/requirements.txt",
     "agent:dev": "python-agent/.venv/bin/uvicorn app.main:app --reload --port 8000 --app-dir python-agent",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 0.0.0.0",
     "lint": "next lint",
     "db:init": "tsx scripts/init-db.ts",
     "db:wait": "tsx scripts/wait-for-mongo.ts",
@@ -22,6 +22,9 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:setup": "docker-compose up -d && npm run db:setup",
+    "docker:build:ubuntu": "bash deploy/build-for-ubuntu.sh",
+    "docker:compose:build:linux": "docker compose -f docker-compose.yml -f deploy/docker-compose.build-linux.yml build app python-agent",
+    "docker:compose:build:linux:clean": "docker compose -f docker-compose.yml -f deploy/docker-compose.build-linux.yml build --no-cache app python-agent",
     "scrape:shanghai:200": "tsx scripts/scrape-shanghai-200.ts"
   },
   "dependencies": {
