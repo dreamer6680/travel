@@ -9,9 +9,9 @@ import {
   BookOpen,
   Settings2,
   User,
-  LayoutDashboard,
   ShieldCheck,
   LogOut,
+  LogIn,
   ChevronLeft,
   Plane,
 } from "lucide-react"
@@ -106,29 +106,40 @@ export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
 
         {/* ── User area ── */}
         <div className="border-t border-sidebar-border p-2 space-y-1">
-          {!collapsed && user && (
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
-              <Avatar className="h-7 w-7 flex-shrink-0">
-                <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                  {user.name?.charAt(0)?.toUpperCase() ?? "U"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-sidebar-foreground truncate">{user.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-              </div>
-            </div>
+          {user ? (
+            <>
+              {!collapsed && (
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
+                  <Avatar className="h-7 w-7 flex-shrink-0">
+                    <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                      {user.name?.charAt(0)?.toUpperCase() ?? "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-sidebar-foreground truncate">{user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                </div>
+              )}
+              <NavItem
+                href="#"
+                label="退出登录"
+                icon={LogOut}
+                active={false}
+                collapsed={collapsed}
+                onClick={logout}
+                variant="ghost-danger"
+              />
+            </>
+          ) : (
+            <NavItem
+              href="/login"
+              label="登录 / 注册"
+              icon={LogIn}
+              active={false}
+              collapsed={collapsed}
+            />
           )}
-
-          <NavItem
-            href="#"
-            label="退出登录"
-            icon={LogOut}
-            active={false}
-            collapsed={collapsed}
-            onClick={logout}
-            variant="ghost-danger"
-          />
         </div>
 
         {/* ── Collapse toggle ── */}

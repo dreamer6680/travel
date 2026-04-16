@@ -24,6 +24,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/preferences": "偏好设置",
   "/profile": "个人中心",
   "/admin": "后台管理",
+  "/trip/create": "创建行程",
+  "/trip/detail": "行程详情",
+  "/trip/result": "行程结果",
 }
 
 interface AppHeaderProps {
