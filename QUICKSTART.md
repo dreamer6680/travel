@@ -53,6 +53,25 @@ docker compose down
 docker compose down -v
 ```
 
+### 可选：单 Docker 镜像（仅 Next + Agent）
+
+若你希望**一个镜像里同时跑** Next 与 Python Agent（仍建议 Mongo / Postgres / Redis / Ollama 用单独容器或托管服务）：
+
+```bash
+docker build -f Dockerfile.monolith -t travel-monolith .
+docker run --rm -p 3000:3000 -p 8000:8000 \
+  -e MONGODB_URI="mongodb://..." \
+  -e POSTGRES_URL="postgres://..." \
+  -e REDIS_URL="redis://..." \
+  -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
+  travel-monolith
+```
+
+说明：
+
+- 容器内 Agent 监听 `8000`，Next 通过 `PYTHON_AGENT_BASE_URL=http://127.0.0.1:8000` 访问 Agent。
+- Ollama 若在宿主机，可用 `host.docker.internal`（Mac/Windows；Linux 需 `--add-host=host.docker.internal:host-gateway`）。
+
 ### 方式1: 使用 npm 脚本（最简单）
 
 ```bash
