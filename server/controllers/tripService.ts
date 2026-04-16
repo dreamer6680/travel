@@ -1,64 +1,82 @@
 import clientPromise from "@/lib/db"
+import { randomUUID } from "crypto"
 import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
 
 export class TripService {
-  /**
-   * 获取所有行程（临时数据，实际应从数据库获取）
-   */
+  private col() {
+    return clientPromise.then((c) => c.db("trip").collection("Trips"))
+  }
+
   async getAllTrips() {
-    // TODO: 从数据库获取
-    return [
-      {
-        id: "trip1",
-        destination: "东京",
-        startDate: "2025-07-15",
-        endDate: "2025-07-20",
-        travelers: 2,
-        budget: 12500,
-        travelStyle: "balanced",
-        highlights: ["东京塔", "浅草寺", "teamLab", "筑地市场", "银座"],
-      },
-      {
-        id: "trip2",
-        destination: "巴黎",
-        startDate: "2025-09-10",
-        endDate: "2025-09-17",
-        travelers: 2,
-        budget: 15000,
-        travelStyle: "cultural",
-        highlights: ["埃菲尔铁塔", "卢浮宫", "凯旋门", "蒙马特高地", "塞纳河"],
-      },
-    ]
+    const col = await this.col()
+    return col.find({}).sort({ createdAt: -1 }).toArray()
   }
 
-  /**
-   * 根据用户 ID 获取行程
-   */
   async getTripsByUserId(userId: string) {
-    const client = await clientPromise
-    const db = client.db("trip")
-    const collection = db.collection("Trips")
-    return await collection.find({ userId }).toArray()
+    const col = await this.col()
+    return col.find({ userId }).sort({ createdAt: -1 }).toArray()
+  }
+
+  async getTripById(id: string) {
+    const col = await this.col()
+    return col.findOne({ id })
   }
 
   /**
-   * 根据 ID 获取行程
+   * 立即保存行程骨架（status: "generating"），返回 id
    */
-  async getTripById(id: number) {
-    const client = await clientPromise
-    const db = client.db("trip")
-    const collection = db.collection("Trips")
-    return await collection.findOne({ id })
+  async savePendingTrip(tripData: any, userId: string): Promise<string> {
+    const col = await this.col()
+    const id = randomUUID()
+    await col.insertOne({
+      id,
+      userId,
+      ...tripData,
+      status: "generating",
+      highlights: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    return id
   }
 
   /**
-   * 创建行程（由 Python Agent 生成）
+   * 调用 Python Agent 生成行程（阻塞，供后台任务使用）
    */
-  async createTripWithAI(tripData: any) {
+  async generateWithAI(tripData: any) {
     return proxyJsonToPythonAgent("/v1/trips/generate", {
       method: "POST",
       body: JSON.stringify(tripData),
     })
+  }
+
+  /**
+   * 将后台生成结果写入数据库
+   */
+  async finalizeTripGeneration(id: string, result: any) {
+    const col = await this.col()
+    return col.updateOne(
+      { id },
+      {
+        $set: {
+          ...result,
+          id, // 保持 id 不变
+          status: "planning",
+          updatedAt: new Date().toISOString(),
+        },
+      }
+    )
+  }
+
+  /**
+   * 标记生成失败
+   */
+  async markTripFailed(id: string) {
+    const col = await this.col()
+    return col.updateOne(
+      { id },
+      { $set: { status: "failed", updatedAt: new Date().toISOString() } }
+    )
   }
 
   /**

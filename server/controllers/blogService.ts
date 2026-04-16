@@ -40,7 +40,7 @@ export class BlogService {
   }
 
   /**
-   * 给博客添加一条评论
+   * 给博客添加一条评论（支持 parentId 回复）
    */
   async addComment(blogId: string, comment: {
     id: string
@@ -48,6 +48,7 @@ export class BlogService {
     userName: string
     userAvatar: string
     content: string
+    parentId?: string | null
     createdAt: string
   }) {
     const client = await clientPromise

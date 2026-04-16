@@ -44,5 +44,11 @@ export const backendEndpoint = {
     images: "/uploads/images",
     avatar: "/uploads/avatar",
   },
+  // 通知相关
+  notifications: {
+    base: "/notifications",
+    readAll: "/notifications/read-all",
+    readOne: (id: string) => `/notifications/${id}/read`,
+  },
 }
 

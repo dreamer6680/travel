@@ -80,21 +80,19 @@ export default function CreateTripPage() {
         interests: formData.interests,
       }
 
-      // 调用API创建行程
+      // 提交后立即返回（后台生成），不再阻塞等待 AI
       const response = await tripAPI.createTrip(tripData)
 
       toast({
-        title: "行程创建成功",
-        description: "正在为您跳转到行程详情页",
+        title: "行程规划中 🗺️",
+        description: "AI 正在后台为您生成行程，完成后将通过消息通知您",
       })
-      console.log("response", response)
-      // 跳转到行程结果页
-      localStorage.setItem("trip", JSON.stringify(response))
-      router.push(`/trip/result`)
+      // 跳转到行程列表，可以看到「生成中」状态
+      router.push("/trips")
     } catch (error) {
       console.error("创建行程失败:", error)
       toast({
-        title: "创建行程失败",
+        title: "提交失败",
         description: "请稍后再试",
         variant: "destructive",
       })

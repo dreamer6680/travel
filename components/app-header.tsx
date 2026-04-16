@@ -14,6 +14,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useUserStore } from "@/lib/store/user-store"
 import Link from "next/link"
+import NotificationBell from "@/components/notification-bell"
 
 // 路径 → 页面标题映射
 const PAGE_TITLES: Record<string, string> = {
@@ -57,6 +58,8 @@ export default function AppHeader({ onMenuClick }: AppHeaderProps) {
       {/* actions */}
       <div className="flex items-center gap-2">
         <ModeToggle />
+
+        {user && <NotificationBell />}
 
         {user && (
           <DropdownMenu>

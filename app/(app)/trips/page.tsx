@@ -52,7 +52,7 @@ interface Trip {
   endDate: string
   travelers: number
   budget: number
-  status: "draft" | "planning" | "confirmed" | "completed"
+  status: "generating" | "failed" | "draft" | "planning" | "confirmed" | "completed"
   highlights: string[]
   createdAt: string
   updatedAt: string
@@ -66,26 +66,32 @@ export default function TripsPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [sortBy, setSortBy] = useState("updatedAt")
 
-  // 获取用户行程
+  // 获取用户行程，如果有「生成中」的行程则 10s 轮询一次
   useEffect(() => {
-    async function fetchTrips() {
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+    async function fetchTrips(silent = false) {
       try {
-        setIsLoading(true)
+        if (!silent) setIsLoading(true)
         const data = await tripAPI.getUserTrips("user1")
         setTrips(data)
+
+        // 有「生成中」的行程就继续轮询
+        if (data.some((t: Trip) => t.status === "generating")) {
+          pollTimer = setTimeout(() => fetchTrips(true), 10_000)
+        }
       } catch (error) {
         console.error("获取行程失败:", error)
-        toast({
-          title: "获取行程失败",
-          description: "请稍后再试",
-          variant: "destructive",
-        })
+        if (!silent) {
+          toast({ title: "获取行程失败", description: "请稍后再试", variant: "destructive" })
+        }
       } finally {
-        setIsLoading(false)
+        if (!silent) setIsLoading(false)
       }
     }
 
     fetchTrips()
+    return () => { if (pollTimer) clearTimeout(pollTimer) }
   }, [toast])
 
   // 删除行程
@@ -131,6 +137,7 @@ export default function TripsPage() {
 
   // 按状态分组行程
   const tripsByStatus = {
+    generating: filteredAndSortedTrips.filter((trip) => trip.status === "generating"),
     draft: filteredAndSortedTrips.filter((trip) => trip.status === "draft"),
     planning: filteredAndSortedTrips.filter((trip) => trip.status === "planning"),
     confirmed: filteredAndSortedTrips.filter((trip) => trip.status === "confirmed"),
@@ -139,31 +146,25 @@ export default function TripsPage() {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case "draft":
-        return "草稿"
-      case "planning":
-        return "规划中"
-      case "confirmed":
-        return "已确认"
-      case "completed":
-        return "已完成"
-      default:
-        return status
+      case "generating": return "生成中"
+      case "failed":     return "生成失败"
+      case "draft":      return "草稿"
+      case "planning":   return "规划中"
+      case "confirmed":  return "已确认"
+      case "completed":  return "已完成"
+      default:           return status
     }
   }
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "draft":
-        return "bg-gray-100 text-gray-800"
-      case "planning":
-        return "bg-blue-100 text-blue-800"
-      case "confirmed":
-        return "bg-green-100 text-green-800"
-      case "completed":
-        return "bg-purple-100 text-purple-800"
-      default:
-        return "bg-gray-100 text-gray-800"
+      case "generating": return "bg-yellow-100 text-yellow-800"
+      case "failed":     return "bg-red-100 text-red-800"
+      case "draft":      return "bg-gray-100 text-gray-800"
+      case "planning":   return "bg-blue-100 text-blue-800"
+      case "confirmed":  return "bg-green-100 text-green-800"
+      case "completed":  return "bg-purple-100 text-purple-800"
+      default:           return "bg-gray-100 text-gray-800"
     }
   }
 
@@ -303,31 +304,25 @@ export default function TripsPage() {
 function TripGrid({ trips, onDeleteTrip }: { trips: Trip[]; onDeleteTrip: (tripId: string) => void }) {
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case "draft":
-        return "草稿"
-      case "planning":
-        return "规划中"
-      case "confirmed":
-        return "已确认"
-      case "completed":
-        return "已完成"
-      default:
-        return status
+      case "generating": return "生成中"
+      case "failed":     return "生成失败"
+      case "draft":      return "草稿"
+      case "planning":   return "规划中"
+      case "confirmed":  return "已确认"
+      case "completed":  return "已完成"
+      default:           return status
     }
   }
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "draft":
-        return "bg-gray-100 text-gray-800"
-      case "planning":
-        return "bg-blue-100 text-blue-800"
-      case "confirmed":
-        return "bg-green-100 text-green-800"
-      case "completed":
-        return "bg-purple-100 text-purple-800"
-      default:
-        return "bg-gray-100 text-gray-800"
+      case "generating": return "bg-yellow-100 text-yellow-800"
+      case "failed":     return "bg-red-100 text-red-800"
+      case "draft":      return "bg-gray-100 text-gray-800"
+      case "planning":   return "bg-blue-100 text-blue-800"
+      case "confirmed":  return "bg-green-100 text-green-800"
+      case "completed":  return "bg-purple-100 text-purple-800"
+      default:           return "bg-gray-100 text-gray-800"
     }
   }
 
@@ -357,7 +352,14 @@ function TripGrid({ trips, onDeleteTrip }: { trips: Trip[]; onDeleteTrip: (tripI
       {trips.map((trip) => (
         <Card key={trip.id} className="overflow-hidden hover:shadow-lg transition-shadow">
           <div className="h-48 bg-muted flex items-center justify-center">
-            <MapPin className="h-12 w-12 text-muted-foreground" />
+            {trip.status === "generating" ? (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <span className="text-sm">AI 规划中...</span>
+              </div>
+            ) : (
+              <MapPin className="h-12 w-12 text-muted-foreground" />
+            )}
           </div>
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between">

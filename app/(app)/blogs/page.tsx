@@ -28,6 +28,7 @@ interface Blog {
   userId: string;
   title: string;
   content: string;
+  coverImage?: string;
   images?: string[];
   destination: string;
   tags?: string[];
@@ -226,11 +227,11 @@ export default function BlogsPage() {
                   key={blog.id}
                   className="overflow-hidden hover:shadow-lg transition-shadow"
                 >
-                  {/* 游记图片 */}
-                  {images.length > 0 && (
-                    <div className="h-48 bg-muted flex items-center justify-center overflow-hidden">
+                  {/* 封面图 */}
+                  {(blog.coverImage || images.length > 0) && (
+                    <div className="h-48 bg-muted overflow-hidden">
                       <img
-                        src={images[0]}
+                        src={blog.coverImage || images[0]}
                         alt={blog.title}
                         className="w-full h-full object-cover"
                       />

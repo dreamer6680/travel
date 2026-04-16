@@ -10,6 +10,7 @@ import { TripService } from "../api-client/trip-service"
 import { RecommendationService } from "../api-client/recommendation-service"
 import { DataService } from "../api-client/data-service"
 import { BlogService } from "../api-client/blog-service"
+import { NotificationService } from "../api-client/notification-service"
 
 // 导出各个服务类
 export { UserService } from "../api-client/user-service"
@@ -17,6 +18,7 @@ export { TripService } from "../api-client/trip-service"
 export { RecommendationService } from "../api-client/recommendation-service"
 export { DataService } from "../api-client/data-service"
 export { BlogService } from "../api-client/blog-service"
+export { NotificationService } from "../api-client/notification-service"
 
 // 导出服务实例（保持向后兼容）
 export const userAPI = new UserService()
@@ -24,4 +26,5 @@ export const tripAPI = new TripService()
 export const recommendationAPI = new RecommendationService()
 export const dataAPI = new DataService()
 export const blogAPI = new BlogService()
+export const notificationAPI = new NotificationService()
 

@@ -48,11 +48,11 @@ export class BlogService {
     })
   }
 
-  /** 发表评论 */
-  addComment(blogId: string, content: string) {
+  /** 发表评论（parentId 为回复目标评论的 id） */
+  addComment(blogId: string, content: string, parentId?: string | null) {
     return fetchAPI(backendEndpoint.blogs.comments(blogId), {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, parentId: parentId ?? null }),
     })
   }
 
