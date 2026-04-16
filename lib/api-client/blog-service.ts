@@ -35,11 +35,24 @@ export class BlogService {
     })
   }
 
-  /** 切换游记发布状态 */
-  togglePublish(blogId: string, status: "published" | "draft") {
+  /** 获取当前登录用户的全部游记（所有状态） */
+  getMyBlogs() {
+    return fetchAPI(backendEndpoint.blogs.user)
+  }
+
+  /** 切换游记发布状态（admin 使用） */
+  togglePublish(blogId: string, status: "published" | "pending" | "draft") {
     return fetchAPI(backendEndpoint.blogs.publish(blogId), {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    })
+  }
+
+  /** 发表评论 */
+  addComment(blogId: string, content: string) {
+    return fetchAPI(backendEndpoint.blogs.comments(blogId), {
+      method: "POST",
+      body: JSON.stringify({ content }),
     })
   }
 

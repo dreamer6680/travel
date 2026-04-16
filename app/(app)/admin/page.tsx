@@ -56,7 +56,7 @@ interface AdminBlog {
   content?: string
   coverImage?: string
   likes: number
-  status: "draft" | "published"
+  status: "pending" | "published" | "draft"
   createdAt: string
   updatedAt?: string
 }
@@ -74,7 +74,7 @@ const EMPTY_BLOG: Omit<AdminBlog, "id" | "likes" | "createdAt"> = {
   destination: "",
   content: "",
   coverImage: "",
-  status: "draft",
+  status: "pending",
 }
 
 const ATTRACTION_TYPES = ["观景台", "博物馆", "自然景观", "历史建筑", "公园", "艺术展览"]
@@ -98,7 +98,7 @@ export default function AdminPage() {
   const [blogs, setBlogs] = useState<AdminBlog[]>([])
   const [blogsLoading, setBlogsLoading] = useState(true)
   const [blogSearch, setBlogSearch] = useState("")
-  const [blogStatusFilter, setBlogStatusFilter] = useState<"all" | "published" | "draft">("all")
+  const [blogStatusFilter, setBlogStatusFilter] = useState<"all" | "published" | "pending">("all")
 
   // ─ Blog dialog state ─
   const [blogDialogOpen, setBlogDialogOpen] = useState(false)
@@ -183,14 +183,24 @@ export default function AdminPage() {
     }
   }
 
-  const handleTogglePublish = async (blog: AdminBlog) => {
-    const nextStatus = blog.status === "published" ? "draft" : "published"
+  const handleApprove = async (blog: AdminBlog) => {
     const originalBlogs = blogs
-    // optimistic update
-    setBlogs((prev) => prev.map((b) => b.id === blog.id ? { ...b, status: nextStatus } : b))
+    setBlogs((prev) => prev.map((b) => b.id === blog.id ? { ...b, status: "published" } : b))
     try {
-      await blogAPI.togglePublish(blog.id, nextStatus)
-      toast({ title: nextStatus === "published" ? "游记已发布" : "游记已下架" })
+      await blogAPI.togglePublish(blog.id, "published")
+      toast({ title: "审核通过", description: "游记已公开发布" })
+    } catch (err: any) {
+      setBlogs(originalBlogs)
+      toast({ title: "操作失败", description: err.message, variant: "destructive" })
+    }
+  }
+
+  const handleUnpublish = async (blog: AdminBlog) => {
+    const originalBlogs = blogs
+    setBlogs((prev) => prev.map((b) => b.id === blog.id ? { ...b, status: "pending" } : b))
+    try {
+      await blogAPI.togglePublish(blog.id, "pending")
+      toast({ title: "已下架", description: "游记已重新进入待审核" })
     } catch (err: any) {
       setBlogs(originalBlogs)
       toast({ title: "操作失败", description: err.message, variant: "destructive" })
@@ -259,7 +269,7 @@ export default function AdminPage() {
     { icon: <Users className="h-7 w-7 text-blue-500" />, label: "总用户数", value: users.length, bg: "bg-blue-50 dark:bg-blue-950/20" },
     { icon: <MapPin className="h-7 w-7 text-emerald-500" />, label: "景点数量", value: attractions.length, bg: "bg-emerald-50 dark:bg-emerald-950/20" },
     { icon: <FileText className="h-7 w-7 text-purple-500" />, label: "游记总数", value: blogs.length, bg: "bg-purple-50 dark:bg-purple-950/20" },
-    { icon: <Globe className="h-7 w-7 text-orange-500" />, label: "已发布游记", value: blogs.filter((b) => b.status === "published").length, bg: "bg-orange-50 dark:bg-orange-950/20" },
+    { icon: <Globe className="h-7 w-7 text-orange-500" />, label: "待审核", value: blogs.filter((b) => b.status === "pending").length, bg: "bg-orange-50 dark:bg-orange-950/20" },
   ]
 
   return (
@@ -430,8 +440,8 @@ export default function AdminPage() {
                   <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部状态</SelectItem>
+                    <SelectItem value="pending">待审核</SelectItem>
                     <SelectItem value="published">已发布</SelectItem>
-                    <SelectItem value="draft">草稿</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -466,8 +476,11 @@ export default function AdminPage() {
                         <TableCell>{blog.destination || "—"}</TableCell>
                         <TableCell>{blog.likes ?? 0}</TableCell>
                         <TableCell>
-                          <Badge variant={blog.status === "published" ? "default" : "secondary"} className="whitespace-nowrap">
-                            {blog.status === "published" ? "已发布" : "草稿"}
+                          <Badge
+                            variant={blog.status === "published" ? "default" : blog.status === "pending" ? "outline" : "secondary"}
+                            className="whitespace-nowrap"
+                          >
+                            {blog.status === "published" ? "已发布" : blog.status === "pending" ? "待审核" : "草稿"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
@@ -482,11 +495,16 @@ export default function AdminPage() {
                               <DropdownMenuItem onClick={() => openEditBlog(blog)}>
                                 <Edit className="h-4 w-4 mr-2" />编辑
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleTogglePublish(blog)}>
-                                {blog.status === "published"
-                                  ? <><EyeOff className="h-4 w-4 mr-2" />下架</>
-                                  : <><Eye className="h-4 w-4 mr-2" />发布</>}
-                              </DropdownMenuItem>
+                              {blog.status === "pending" && (
+                                <DropdownMenuItem onClick={() => handleApprove(blog)}>
+                                  <Eye className="h-4 w-4 mr-2" />审核通过
+                                </DropdownMenuItem>
+                              )}
+                              {blog.status === "published" && (
+                                <DropdownMenuItem onClick={() => handleUnpublish(blog)}>
+                                  <EyeOff className="h-4 w-4 mr-2" />下架
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
@@ -531,10 +549,10 @@ export default function AdminPage() {
               </div>
               <div className="space-y-2">
                 <Label>发布状态</Label>
-                <Select value={blogForm.status} onValueChange={(v: "draft" | "published") => setBlogForm({ ...blogForm, status: v })}>
+                <Select value={blogForm.status} onValueChange={(v: "pending" | "published") => setBlogForm({ ...blogForm, status: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="draft">草稿（不公开）</SelectItem>
+                    <SelectItem value="pending">待审核</SelectItem>
                     <SelectItem value="published">立即发布</SelectItem>
                   </SelectContent>
                 </Select>

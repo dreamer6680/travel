@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Save, Eye, X, Plus, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -125,7 +124,7 @@ export default function CreateBlogPage() {
     }
   }, [editor])
 
-  const handleSubmit = async (status: "draft" | "published") => {
+  const handleSubmit = async (submitStatus: "draft" | "pending") => {
     if (!formData.title.trim() || !formData.content.trim()) {
       toast({
         title: "请填写必要信息",
@@ -139,10 +138,10 @@ export default function CreateBlogPage() {
       setIsLoading(true)
       const payload = {
         ...formData,
-        status,
+        status: submitStatus,
         userId: user?.id ?? "",
         author: {
-          name: user?.name ?? "匿名用户",
+          name: user?.name ?? "",
           avatar: user?.avatar ?? "",
         },
       }
@@ -150,8 +149,8 @@ export default function CreateBlogPage() {
       console.log("response", response)
 
       toast({
-        title: status === "published" ? "发布成功" : "保存成功",
-        description: status === "published" ? "您的游记已发布" : "游记已保存为草稿",
+        title: submitStatus === "pending" ? "已提交审核" : "保存成功",
+        description: submitStatus === "pending" ? "游记已提交，等待管理员审核后将公开发布" : "游记已保存为草稿",
       })
 
       router.push("/blogs")
@@ -206,14 +205,14 @@ export default function CreateBlogPage() {
               <Save className="h-4 w-4 mr-2" />
               保存草稿
             </Button>
-            <Button onClick={() => handleSubmit("published")} disabled={isLoading}>
+            <Button onClick={() => handleSubmit("pending")} disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  发布中...
+                  提交中...
                 </>
               ) : (
-                "发布游记"
+                "提交审核"
               )}
             </Button>
           </div>
@@ -348,29 +347,17 @@ export default function CreateBlogPage() {
               </CardContent>
             </Card>
 
-            {/* 发布设置 */}
+            {/* 发布说明 */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">发布设置</CardTitle>
+                <CardTitle className="text-lg">发布说明</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <Label>状态</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value: "draft" | "published") => setFormData({ ...formData, status: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="draft">草稿</SelectItem>
-                        <SelectItem value="published">发布</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  点击「提交审核」后，游记将进入审核队列，管理员审核通过后才会公开展示。
+                  <br /><br />
+                  点击「保存草稿」仅自己可见，随时可继续编辑。
+                </p>
               </CardContent>
             </Card>
           </div>

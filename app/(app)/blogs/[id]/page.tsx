@@ -12,6 +12,7 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { blogAPI } from "@/lib/api"
+import { useUserStore } from "@/lib/store/user-store"
 
 interface Comment {
   id: string
@@ -45,6 +46,7 @@ interface Blog {
 export default function BlogDetailPage() {
   const params = useParams()
   const { toast } = useToast()
+  const { user } = useUserStore()
   const [blog, setBlog] = useState<Blog | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [newComment, setNewComment] = useState("")
@@ -88,14 +90,7 @@ export default function BlogDetailPage() {
 
     try {
       setIsSubmittingComment(true)
-      const comment: Comment = {
-        id: `comment${Date.now()}`,
-        userId: "currentUser",
-        userName: "当前用户",
-        userAvatar: "/placeholder.svg",
-        content: newComment,
-        createdAt: new Date().toISOString(),
-      }
+      const comment = await blogAPI.addComment(params.id as string, newComment.trim())
       setBlog({
         ...blog,
         comments: [...(blog.comments ?? []), comment],

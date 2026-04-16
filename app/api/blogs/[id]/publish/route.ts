@@ -17,9 +17,9 @@ export async function PATCH(
       return NextResponse.json({ error: "权限不足" }, { status: 403 })
     }
 
-    const { status } = await request.json() as { status: "published" | "draft" }
-    if (status !== "published" && status !== "draft") {
-      return NextResponse.json({ error: "status 只能是 published 或 draft" }, { status: 400 })
+    const { status } = await request.json() as { status: "published" | "pending" | "draft" }
+    if (!["published", "pending", "draft"].includes(status)) {
+      return NextResponse.json({ error: "status 只能是 published / pending / draft" }, { status: 400 })
     }
 
     const result = await blogService.togglePublish(params.id, status)

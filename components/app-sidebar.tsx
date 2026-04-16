@@ -7,6 +7,7 @@ import {
   MessageCircle,
   Compass,
   BookOpen,
+  BookMarked,
   Settings2,
   User,
   ShieldCheck,
@@ -26,7 +27,8 @@ const NAV_MAIN = [
   { href: "/trips", label: "我的行程", icon: MapPin },
   { href: "/chat", label: "AI 助手", icon: MessageCircle },
   { href: "/recommendations", label: "探索景点", icon: Compass },
-  { href: "/blogs", label: "游记分享", icon: BookOpen },
+  { href: "/blogs", label: "游记广场", icon: BookOpen },
+  { href: "/my-blogs", label: "我的游记", icon: BookMarked },
 ]
 
 const NAV_SECONDARY = [

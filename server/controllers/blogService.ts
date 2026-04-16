@@ -2,19 +2,62 @@ import clientPromise from "@/lib/db"
 
 export class BlogService {
   /**
-   * 获取所有博客（管理后台用）
+   * 管理后台获取博客（只含 pending 和 published，不含 draft）
    */
   async getAllBlogs() {
     try {
       const client = await clientPromise
       const db = client.db("trip")
       const collection = db.collection("TravelBlogs")
-      const blogs = await collection.find({}).sort({ createdAt: -1 }).toArray()
+      const blogs = await collection
+        .find({ status: { $in: ["pending", "published"] } })
+        .sort({ createdAt: -1 })
+        .toArray()
       return blogs || []
     } catch (error) {
       console.error("BlogService.getAllBlogs 错误:", error)
       throw error
     }
+  }
+
+  /**
+   * 获取当前用户的所有博客（全状态）
+   */
+  async getBlogsByUserId(userId: string) {
+    try {
+      const client = await clientPromise
+      const db = client.db("trip")
+      const collection = db.collection("TravelBlogs")
+      const blogs = await collection
+        .find({ userId })
+        .sort({ createdAt: -1 })
+        .toArray()
+      return blogs || []
+    } catch (error) {
+      console.error("BlogService.getBlogsByUserId 错误:", error)
+      throw error
+    }
+  }
+
+  /**
+   * 给博客添加一条评论
+   */
+  async addComment(blogId: string, comment: {
+    id: string
+    userId: string
+    userName: string
+    userAvatar: string
+    content: string
+    createdAt: string
+  }) {
+    const client = await clientPromise
+    const db = client.db("trip")
+    const collection = db.collection("TravelBlogs")
+    const result = await collection.updateOne(
+      { id: blogId },
+      { $push: { comments: comment } as any }
+    )
+    return result
   }
 
   /**
