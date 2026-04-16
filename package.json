@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
     "agent:install": "python3 -m venv python-agent/.venv && python-agent/.venv/bin/pip install -r python-agent/requirements.txt",
     "agent:dev": "python-agent/.venv/bin/uvicorn app.main:app --reload --port 8000 --app-dir python-agent",
     "build": "next build",
@@ -100,6 +101,9 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@locator/runtime": "^0.5.1",
+    "@locator/webpack-loader": "^0.5.1",
+    "solid-js": "^1.9.12",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22",
     "@types/pg": "^8.11.10",
