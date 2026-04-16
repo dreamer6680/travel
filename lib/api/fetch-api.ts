@@ -10,11 +10,13 @@ export function getToken(): string | null {
 }
 
 /**
- * 设置 Token
+ * 设置 Token（localStorage + cookie，cookie 供 middleware 鉴权使用）
  */
 export function setToken(token: string): void {
   if (typeof window === "undefined") return
   localStorage.setItem("token", token)
+  // 同步到 cookie，max-age=7d，供 Next.js middleware 读取
+  document.cookie = `auth-token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`
 }
 
 /**
@@ -23,6 +25,8 @@ export function setToken(token: string): void {
 export function removeToken(): void {
   if (typeof window === "undefined") return
   localStorage.removeItem("token")
+  // 同时清除 cookie
+  document.cookie = "auth-token=; path=/; max-age=0"
 }
 
 // 通用请求函数

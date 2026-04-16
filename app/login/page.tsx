@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUserStore } from "@/lib/store/user-store"
 import { userAPI } from "@/lib/api"
 
@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { login, setToken } = useUserStore()
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -38,8 +39,9 @@ export default function LoginPage() {
         description: "欢迎回来！",
       })
 
-      // 跳转到首页
-      router.push("/")
+      // 登录成功后跳回原始页面，默认首页
+      const redirect = searchParams.get("redirect") || "/"
+      router.push(redirect)
     } catch (err: any) {
       const errorMessage = err.message || "登录失败，请检查邮箱和密码"
       setError(errorMessage)

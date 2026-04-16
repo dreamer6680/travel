@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import { getToken, removeToken } from "../api/fetch-api"
+import { getToken, removeToken, setToken as saveToken } from "../api/fetch-api"
 import { userAPI } from "../api"
 
 export interface User {
@@ -59,9 +59,7 @@ export const useUserStore = create<UserStore>()(
       },
 
       setToken: (token: string) => {
-        if (typeof window !== "undefined") {
-          localStorage.setItem("token", token)
-        }
+        saveToken(token)
         // 设置 token 后，尝试获取用户信息
         get().checkAuth()
       },
@@ -71,10 +69,8 @@ export const useUserStore = create<UserStore>()(
         try {
           const result = await userAPI.login(email, password)
           if (result.token && result.user) {
-            // 存储 token
-            if (typeof window !== "undefined") {
-              localStorage.setItem("token", result.token)
-            }
+            // 存储 token（含 cookie 同步）
+            saveToken(result.token)
             // 设置用户信息
             set({
               user: result.user,
