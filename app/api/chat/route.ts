@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     const upstream = await proxyStreamToPythonAgent("/v1/chat/stream", {
       method: "POST",
       body: JSON.stringify({ dialogText }),
+      signal: req.signal,
     })
     return new Response(upstream.body, {
       status: 200,

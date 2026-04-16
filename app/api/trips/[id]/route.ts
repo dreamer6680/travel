@@ -5,11 +5,10 @@ const tripService = new TripService()
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tripId = Number(await params.id)
-    console.log("tripId", tripId)
+    const { id: tripId } = await params
 
     const trip = await tripService.getTripById(tripId)
 
@@ -24,10 +23,10 @@ export async function GET(
   }
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const updateData = await request.json()
-    const tripId = await params.id
+    const { id: tripId } = await params
     const { updatedTrip } = await tripService.updateTrip(tripId, updateData)
     return NextResponse.json(updatedTrip)
   } catch (error) {
