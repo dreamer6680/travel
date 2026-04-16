@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import Link from "next/link"
 import { MapPin, Calendar, Compass, Star, MessageCircle, Sparkles, ArrowRight, Globe } from "lucide-react"
 import { cn } from "@/lib/utils"
+import Footer from "@/components/footer"
 
 export default function Home() {
   return (
@@ -175,6 +176,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <Footer />
     </div>
   )
 }

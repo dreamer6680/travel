@@ -127,7 +127,7 @@ export default function RecommendationsPage() {
   const filteredAI = filterBySearch(filterByType(aiRecommendations))
 
   return (
-    <div className="w-full py-8">
+    <div className="w-full py-8 px-4">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-4">探索推荐</h1>

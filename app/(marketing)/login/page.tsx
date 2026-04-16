@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,11 +9,12 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from "next/navigation"
 import { useUserStore } from "@/lib/store/user-store"
 import { userAPI } from "@/lib/api"
 
-export default function LoginPage() {
+// useSearchParams 必须在 Suspense 边界内使用
+function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
@@ -33,23 +33,13 @@ export default function LoginPage() {
 
     try {
       await login(email, password)
-      
-      toast({
-        title: "登录成功",
-        description: "欢迎回来！",
-      })
-
-      // 登录成功后跳回原始页面，默认首页
+      toast({ title: "登录成功", description: "欢迎回来！" })
       const redirect = searchParams.get("redirect") || "/"
       router.push(redirect)
     } catch (err: any) {
       const errorMessage = err.message || "登录失败，请检查邮箱和密码"
       setError(errorMessage)
-      toast({
-        title: "登录失败",
-        description: errorMessage,
-        variant: "destructive",
-      })
+      toast({ title: "登录失败", description: errorMessage, variant: "destructive" })
     } finally {
       setIsLoading(false)
     }
@@ -66,7 +56,6 @@ export default function LoginPage() {
     const password = formData.get("register-password") as string
     const confirmPassword = formData.get("register-confirm") as string
 
-    // 前端验证
     if (password !== confirmPassword) {
       setError("两次输入的密码不一致")
       setIsLoading(false)
@@ -74,23 +63,10 @@ export default function LoginPage() {
     }
 
     try {
-      const result = await userAPI.register({
-        name,
-        email,
-        password,
-        confirmPassword,
-      })
-
+      const result = await userAPI.register({ name, email, password, confirmPassword })
       if (result.token && result.user) {
-        // 使用 store 设置 token 和用户信息
         setToken(result.token)
-        
-        toast({
-          title: "注册成功",
-          description: `欢迎加入，${result.user.name}！`,
-        })
-
-        // 跳转到偏好设置页面
+        toast({ title: "注册成功", description: `欢迎加入，${result.user.name}！` })
         router.push("/preferences")
       } else {
         throw new Error(result.error || "注册失败")
@@ -98,23 +74,21 @@ export default function LoginPage() {
     } catch (err: any) {
       const errorMessage = err.message || "注册失败，请稍后重试"
       setError(errorMessage)
-      toast({
-        title: "注册失败",
-        description: errorMessage,
-        variant: "destructive",
-      })
+      toast({ title: "注册失败", description: errorMessage, variant: "destructive" })
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="w-full flex items-center justify-center min-h-[calc(100vh-8rem)] py-8">
+    <div className="w-full flex items-center justify-center min-h-[calc(100vh-3.5rem)] py-8">
       <Tabs defaultValue="login" className="w-full max-w-md">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="login">登录</TabsTrigger>
           <TabsTrigger value="register">注册</TabsTrigger>
         </TabsList>
+
+        {/* ── Login ── */}
         <TabsContent value="login">
           <Card>
             <CardHeader>
@@ -130,14 +104,7 @@ export default function LoginPage() {
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="email">邮箱</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    required
-                    disabled={isLoading}
-                  />
+                  <Input id="email" name="email" type="email" placeholder="your@email.com" required disabled={isLoading} />
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -146,13 +113,7 @@ export default function LoginPage() {
                       忘记密码?
                     </Link>
                   </div>
-                  <Input
-                    id="password"
-                    name="password"
-                    type="password"
-                    required
-                    disabled={isLoading}
-                  />
+                  <Input id="password" name="password" type="password" required disabled={isLoading} />
                 </div>
               </CardContent>
               <CardFooter>
@@ -163,6 +124,8 @@ export default function LoginPage() {
             </form>
           </Card>
         </TabsContent>
+
+        {/* ── Register ── */}
         <TabsContent value="register">
           <Card>
             <CardHeader>
@@ -178,45 +141,20 @@ export default function LoginPage() {
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="register-name">姓名</Label>
-                  <Input
-                    id="register-name"
-                    name="register-name"
-                    required
-                    disabled={isLoading}
-                  />
+                  <Input id="register-name" name="register-name" required disabled={isLoading} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="register-email">邮箱</Label>
-                  <Input
-                    id="register-email"
-                    name="register-email"
-                    type="email"
-                    placeholder="your@email.com"
-                    required
-                    disabled={isLoading}
-                  />
+                  <Input id="register-email" name="register-email" type="email" placeholder="your@email.com" required disabled={isLoading} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="register-password">密码</Label>
-                  <Input
-                    id="register-password"
-                    name="register-password"
-                    type="password"
-                    required
-                    minLength={6}
-                    disabled={isLoading}
-                  />
+                  <Input id="register-password" name="register-password" type="password" required minLength={6} disabled={isLoading} />
                   <p className="text-xs text-muted-foreground">密码长度至少 6 位</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="register-confirm">确认密码</Label>
-                  <Input
-                    id="register-confirm"
-                    name="register-confirm"
-                    type="password"
-                    required
-                    disabled={isLoading}
-                  />
+                  <Input id="register-confirm" name="register-confirm" type="password" required disabled={isLoading} />
                 </div>
               </CardContent>
               <CardFooter>
@@ -229,5 +167,13 @@ export default function LoginPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

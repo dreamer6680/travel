@@ -63,7 +63,8 @@ const nextConfig = {
       }
     }
     // App Router 下大量 UI 走服务端编译：只在 client 注入会导致「No source info」
-    if (dev) {
+    // isServer 判断：避免 solid-js/web polyfill 污染 SSR bundle，导致 React 为 null
+    if (dev && !isServer) {
       unshiftLoader(
         {
           oneOf: [
