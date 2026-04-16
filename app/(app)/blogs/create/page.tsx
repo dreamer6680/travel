@@ -14,12 +14,14 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { blogAPI } from "@/lib/api"
+import { useUserStore } from "@/lib/store/user-store"
 
 type WangEditorModule = typeof import("@wangeditor-next/editor-for-react")
 
 export default function CreateBlogPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { user } = useUserStore()
   const [uploadBlogId] = useState(() => `draft-${Math.random().toString(36).slice(2, 10)}`)
   const [isLoading, setIsLoading] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
@@ -135,7 +137,16 @@ export default function CreateBlogPage() {
 
     try {
       setIsLoading(true)
-      const response = await blogAPI.createBlog(formData)
+      const payload = {
+        ...formData,
+        status,
+        userId: user?.id ?? "",
+        author: {
+          name: user?.name ?? "匿名用户",
+          avatar: user?.avatar ?? "",
+        },
+      }
+      const response = await blogAPI.createBlog(payload)
       console.log("response", response)
 
       toast({

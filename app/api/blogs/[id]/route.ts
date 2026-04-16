@@ -5,7 +5,7 @@ const blogService = new BlogService()
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    const id = Number(await params.id)
+    const id = params.id
     const blog = await blogService.getBlogById(id)
 
     if (!blog) {
@@ -22,7 +22,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const updateData = await request.json()
-    const id = Number(await params.id)
+    const id = params.id
     const result = await blogService.updateBlog(id, updateData)
 
     if (result.matchedCount === 0) {
@@ -38,7 +38,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const id = Number(await params.id)
+    const id = params.id
     const result = await blogService.deleteBlog(id)
 
     if (result.deletedCount === 0) {

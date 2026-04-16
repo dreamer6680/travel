@@ -34,6 +34,13 @@ export const backendEndpoint = {
   blogs: {
     base: "/blogs",
     byId: (id: string) => `/blogs/${id}`,
+    admin: "/blogs/admin",
+    publish: (id: string) => `/blogs/${id}/publish`,
+  },
+  // 上传相关
+  uploads: {
+    images: "/uploads/images",
+    avatar: "/uploads/avatar",
   },
 }
 

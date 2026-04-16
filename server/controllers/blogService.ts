@@ -2,6 +2,36 @@ import clientPromise from "@/lib/db"
 
 export class BlogService {
   /**
+   * 获取所有博客（管理后台用）
+   */
+  async getAllBlogs() {
+    try {
+      const client = await clientPromise
+      const db = client.db("trip")
+      const collection = db.collection("TravelBlogs")
+      const blogs = await collection.find({}).sort({ createdAt: -1 }).toArray()
+      return blogs || []
+    } catch (error) {
+      console.error("BlogService.getAllBlogs 错误:", error)
+      throw error
+    }
+  }
+
+  /**
+   * 切换博客发布状态
+   */
+  async togglePublish(id: string, status: "published" | "draft") {
+    const client = await clientPromise
+    const db = client.db("trip")
+    const collection = db.collection("TravelBlogs")
+    const result = await collection.updateOne(
+      { id },
+      { $set: { status, updatedAt: new Date().toISOString() } }
+    )
+    return result
+  }
+
+  /**
    * 获取所有已发布的博客
    */
   async getPublishedBlogs() {
@@ -22,7 +52,7 @@ export class BlogService {
   /**
    * 根据 ID 获取博客
    */
-  async getBlogById(id: number) {
+  async getBlogById(id: string) {
     const client = await clientPromise
     const db = client.db("trip")
     const collection = db.collection("TravelBlogs")
@@ -55,7 +85,7 @@ export class BlogService {
   /**
    * 更新博客
    */
-  async updateBlog(id: number, updateData: any) {
+  async updateBlog(id: string, updateData: any) {
     const client = await clientPromise
     const db = client.db("trip")
     const collection = db.collection("TravelBlogs")
@@ -76,7 +106,7 @@ export class BlogService {
   /**
    * 删除博客
    */
-  async deleteBlog(id: number) {
+  async deleteBlog(id: string) {
     const client = await clientPromise
     const db = client.db("trip")
     const collection = db.collection("TravelBlogs")

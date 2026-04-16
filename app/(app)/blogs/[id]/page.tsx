@@ -23,17 +23,17 @@ interface Comment {
 }
 
 interface Blog {
-  id: number
+  id: string
   userId: string
   title: string
   content: string
-  images: string[]
-  destination: string
-  tags: string[]
+  images?: string[]
+  destination?: string
+  tags?: string[]
   likes: number
-  likedBy: string[]
-  comments: Comment[]
-  author: {
+  likedBy?: string[]
+  comments?: Comment[]
+  author?: {
     name: string
     avatar: string
   }
@@ -57,10 +57,8 @@ export default function BlogDetailPage() {
   const fetchBlog = async () => {
     try {
       setIsLoading(true)
-      // 模拟API调用
-      const mockBlog = await blogAPI.getBlog(params.id as string)
-
-      setBlog(mockBlog)
+      const data = await blogAPI.getBlog(params.id as string)
+      setBlog(data)
     } catch (error) {
       toast({
         title: "加载失败",
@@ -72,23 +70,17 @@ export default function BlogDetailPage() {
     }
   }
 
-  const handleLike = async () => {
+  const handleLike = () => {
     if (!blog) return
-
-    try {
-      const isLiked = blog.likedBy.includes("currentUser")
-      setBlog({
-        ...blog,
-        likes: isLiked ? blog.likes - 1 : blog.likes + 1,
-        likedBy: isLiked ? blog.likedBy.filter((id) => id !== "currentUser") : [...blog.likedBy, "currentUser"],
-      })
-    } catch (error) {
-      toast({
-        title: "操作失败",
-        description: "请稍后再试",
-        variant: "destructive",
-      })
-    }
+    const likedBy = blog.likedBy ?? []
+    const isLiked = likedBy.includes("currentUser")
+    setBlog({
+      ...blog,
+      likes: isLiked ? blog.likes - 1 : blog.likes + 1,
+      likedBy: isLiked
+        ? likedBy.filter((id) => id !== "currentUser")
+        : [...likedBy, "currentUser"],
+    })
   }
 
   const handleSubmitComment = async () => {
@@ -100,26 +92,18 @@ export default function BlogDetailPage() {
         id: `comment${Date.now()}`,
         userId: "currentUser",
         userName: "当前用户",
-        userAvatar: "/placeholder.svg?height=40&width=40",
+        userAvatar: "/placeholder.svg",
         content: newComment,
         createdAt: new Date().toISOString(),
       }
-
       setBlog({
         ...blog,
-        comments: [...blog.comments, comment],
+        comments: [...(blog.comments ?? []), comment],
       })
       setNewComment("")
-      toast({
-        title: "评论成功",
-        description: "您的评论已发布",
-      })
+      toast({ title: "评论成功", description: "您的评论已发布" })
     } catch (error) {
-      toast({
-        title: "评论失败",
-        description: "请稍后再试",
-        variant: "destructive",
-      })
+      toast({ title: "评论失败", description: "请稍后再试", variant: "destructive" })
     } finally {
       setIsSubmittingComment(false)
     }
@@ -133,75 +117,6 @@ export default function BlogDetailPage() {
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    })
-  }
-
-  const formatContent = (content: string) => {
-    // 简单的markdown渲染
-    return content.split("\n").map((line, index) => {
-      if (line.startsWith("# ")) {
-        return (
-          <h1 key={index} className="text-3xl font-bold mt-8 mb-4 first:mt-0">
-            {line.substring(2)}
-          </h1>
-        )
-      }
-      if (line.startsWith("## ")) {
-        return (
-          <h2 key={index} className="text-2xl font-semibold mt-6 mb-3">
-            {line.substring(3)}
-          </h2>
-        )
-      }
-      if (line.startsWith("### ")) {
-        return (
-          <h3 key={index} className="text-xl font-medium mt-4 mb-2">
-            {line.substring(4)}
-          </h3>
-        )
-      }
-      if (line.startsWith("![")) {
-        const match = line.match(/!\[([^\]]*)\]$$([^)]+)$$/)
-        if (match) {
-          return (
-            <div key={index} className="my-6">
-              <img src={match[2] || "/placeholder.svg"} alt={match[1]} className="w-full rounded-lg" />
-            </div>
-          )
-        }
-      }
-      if (line.startsWith("- **") && line.includes("**:")) {
-        const parts = line.split("**:")
-        const title = parts[0].substring(4)
-        const description = parts[1]
-        return (
-          <li key={index} className="mb-2">
-            <strong>{title}</strong>: {description}
-          </li>
-        )
-      }
-      if (line.startsWith("- ")) {
-        return (
-          <li key={index} className="mb-1">
-            {line.substring(2)}
-          </li>
-        )
-      }
-      if (line.startsWith("**") && line.endsWith("**")) {
-        return (
-          <p key={index} className="font-bold my-4">
-            {line.slice(2, -2)}
-          </p>
-        )
-      }
-      if (line.trim() === "") {
-        return <br key={index} />
-      }
-      return (
-        <p key={index} className="mb-4 leading-relaxed">
-          {line}
-        </p>
-      )
     })
   }
 
@@ -233,6 +148,11 @@ export default function BlogDetailPage() {
     )
   }
 
+  const likedBy = blog.likedBy ?? []
+  const tags = blog.tags ?? []
+  const comments = blog.comments ?? []
+  const isLiked = likedBy.includes("currentUser")
+
   return (
     <div className="w-full py-8">
       <div className="max-w-4xl mx-auto">
@@ -251,10 +171,12 @@ export default function BlogDetailPage() {
               <div className="flex-1">
                 <CardTitle className="text-3xl mb-4">{blog.title}</CardTitle>
                 <div className="flex items-center gap-6 text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <MapPin className="h-4 w-4" />
-                    {blog.destination}
-                  </div>
+                  {blog.destination && (
+                    <div className="flex items-center gap-1">
+                      <MapPin className="h-4 w-4" />
+                      {blog.destination}
+                    </div>
+                  )}
                   <div className="flex items-center gap-1">
                     <Calendar className="h-4 w-4" />
                     {formatDate(blog.createdAt)}
@@ -266,37 +188,39 @@ export default function BlogDetailPage() {
             {/* 作者信息 */}
             <div className="flex items-center gap-3 mb-4">
               <Avatar className="h-10 w-10">
-                <AvatarImage src={blog.author?.avatar || "/placeholder.svg"} />
-                <AvatarFallback>{blog.author?.name.charAt(0)}</AvatarFallback>
+                <AvatarImage src={blog.author?.avatar ?? "/placeholder.svg"} />
+                <AvatarFallback>{blog.author?.name?.charAt(0) ?? "?"}</AvatarFallback>
               </Avatar>
               <div>
-                <p className="font-medium">{blog.author?.name}</p>
+                <p className="font-medium">{blog.author?.name ?? "匿名作者"}</p>
                 <p className="text-sm text-muted-foreground">旅行爱好者</p>
               </div>
             </div>
 
             {/* 标签 */}
-            <div className="flex flex-wrap gap-2 mb-4">
-              {blog.tags.map((tag) => (
-                <Badge key={tag} variant="secondary">
-                  {tag}
-                </Badge>
-              ))}
-            </div>
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {tags.map((tag) => (
+                  <Badge key={tag} variant="secondary">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
 
             {/* 互动按钮 */}
             <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
                 onClick={handleLike}
-                className={blog.likedBy.includes("currentUser") ? "text-red-500" : ""}
+                className={isLiked ? "text-red-500" : ""}
               >
-                <Heart className={`h-4 w-4 mr-2 ${blog.likedBy.includes("currentUser") ? "fill-current" : ""}`} />
+                <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
                 {blog.likes} 点赞
               </Button>
               <Button variant="ghost">
                 <MessageCircle className="h-4 w-4 mr-2" />
-                {blog.comments.length} 评论
+                {comments.length} 评论
               </Button>
               <Button variant="ghost">
                 <Share2 className="h-4 w-4 mr-2" />
@@ -306,14 +230,18 @@ export default function BlogDetailPage() {
           </CardHeader>
 
           <CardContent>
-            <div className="prose prose-lg max-w-none">{formatContent(blog.content)}</div>
+            {/* 渲染富文本 HTML 内容 */}
+            <div
+              className="prose prose-lg max-w-none dark:prose-invert"
+              dangerouslySetInnerHTML={{ __html: blog.content }}
+            />
           </CardContent>
         </Card>
 
         {/* 评论区 */}
         <Card>
           <CardHeader>
-            <CardTitle>评论 ({blog.comments.length})</CardTitle>
+            <CardTitle>评论 ({comments.length})</CardTitle>
           </CardHeader>
           <CardContent>
             {/* 发表评论 */}
@@ -344,13 +272,13 @@ export default function BlogDetailPage() {
 
             {/* 评论列表 */}
             <div className="space-y-6">
-              {blog.comments.length === 0 ? (
+              {comments.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">暂无评论，快来发表第一条评论吧！</p>
               ) : (
-                blog.comments.map((comment) => (
+                comments.map((comment) => (
                   <div key={comment.id} className="flex gap-3">
                     <Avatar className="h-8 w-8 flex-shrink-0">
-                      <AvatarImage src={comment.userAvatar || "/placeholder.svg"} />
+                      <AvatarImage src={comment.userAvatar ?? "/placeholder.svg"} />
                       <AvatarFallback>{comment.userName.charAt(0)}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
