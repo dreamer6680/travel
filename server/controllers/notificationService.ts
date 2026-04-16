@@ -1,5 +1,6 @@
 import clientPromise from "@/lib/db"
 import { randomUUID } from "crypto"
+import { publishNotification } from "@/server/realtime/notification-bus"
 
 export type NotificationType =
   | "comment_reply"
@@ -32,6 +33,7 @@ export class NotificationService {
       createdAt: new Date().toISOString(),
     }
     await col.insertOne(doc)
+    await publishNotification({ userId: doc.userId, notification: doc })
     return doc
   }
 

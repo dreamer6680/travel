@@ -47,6 +47,7 @@ export const backendEndpoint = {
   // 通知相关
   notifications: {
     base: "/notifications",
+    stream: "/notifications/stream",
     readAll: "/notifications/read-all",
     readOne: (id: string) => `/notifications/${id}/read`,
   },

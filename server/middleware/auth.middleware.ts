@@ -4,6 +4,17 @@ import { AuthService } from "@/server/controllers/authService"
 
 const authService = new AuthService()
 
+function extractTokenFromCookie(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null
+  const target = cookieHeader
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("auth-token="))
+  if (!target) return null
+  const token = target.slice("auth-token=".length)
+  return token || null
+}
+
 /**
  * 认证中间件 - 验证请求中的 JWT Token
  */
@@ -11,7 +22,9 @@ export async function authenticateRequest(request: NextRequest) {
   try {
     // 从请求头获取 token
     const authHeader = request.headers.get("authorization")
-    const token = extractTokenFromHeader(authHeader)
+    const token =
+      extractTokenFromHeader(authHeader) ??
+      extractTokenFromCookie(request.headers.get("cookie"))
 
     if (!token) {
       return {

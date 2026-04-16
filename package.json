@@ -72,6 +72,7 @@
     "fs-extra": "^11.3.0",
     "gcp-metadata": "latest",
     "input-otp": "1.4.1",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "kerberos": "latest",
     "lucide-react": "^0.454.0",
@@ -103,13 +104,13 @@
   "devDependencies": {
     "@locator/runtime": "^0.5.1",
     "@locator/webpack-loader": "^0.5.1",
-    "solid-js": "^1.9.12",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22",
     "@types/pg": "^8.11.10",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "postcss": "^8.5",
+    "solid-js": "^1.9.12",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.7.0",
     "typescript": "^5"

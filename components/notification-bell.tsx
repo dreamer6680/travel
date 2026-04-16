@@ -13,7 +13,6 @@ import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { notificationAPI } from "@/lib/api"
 import type { Notification } from "@/lib/api-client/notification-service"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -23,39 +22,72 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   trip_complete: <MapPin className="h-4 w-4 text-purple-500 flex-shrink-0" />,
 }
 
-const POLL_INTERVAL = 30_000 // 30s
-
 export default function NotificationBell() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const eventSourceRef = useRef<EventSource | null>(null)
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const data = await notificationAPI.getNotifications()
-      setNotifications(data.notifications)
-      setUnreadCount(data.unreadCount)
-    } catch {
-      // 静默失败，不影响主流程
+  const upsertNotification = useCallback((incoming: Notification) => {
+    let delta = 0
+    setNotifications((prev) => {
+      const idx = prev.findIndex((n) => n.id === incoming.id)
+      if (idx === -1) {
+        delta = incoming.read ? 0 : 1
+        return [incoming, ...prev]
+      }
+      const before = prev[idx]
+      const next = [...prev]
+      next[idx] = incoming
+      if (before.read && !incoming.read) delta = 1
+      if (!before.read && incoming.read) delta = -1
+      return next
+    })
+    if (delta !== 0) {
+      setUnreadCount((c) => Math.max(0, c + delta))
     }
   }, [])
 
-  // 初次加载 + 定时轮询
+  // 仅依赖 SSE：连接时下发 snapshot，之后增量推送 notification
   useEffect(() => {
-    fetchNotifications()
-    intervalRef.current = setInterval(fetchNotifications, POLL_INTERVAL)
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+    const es = new EventSource("/api/notifications/stream")
+    eventSourceRef.current = es
+    es.addEventListener("snapshot", (evt) => {
+      try {
+        const payload = JSON.parse((evt as MessageEvent).data) as {
+          notifications: Notification[]
+          unreadCount: number
+        }
+        setNotifications(payload.notifications)
+        setUnreadCount(payload.unreadCount)
+      } catch {
+        // 忽略坏消息
+      }
+    })
+    es.addEventListener("notification", (evt) => {
+      try {
+        const payload = JSON.parse((evt as MessageEvent).data) as Notification
+        upsertNotification(payload)
+      } catch {
+        // 忽略坏消息
+      }
+    })
+    es.onerror = () => {
+      // 连接异常时交给浏览器自动重连
     }
-  }, [fetchNotifications])
 
-  // 打开面板时立即刷新
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+    }
+  }, [upsertNotification])
+
   const handleOpenChange = (o: boolean) => {
     setOpen(o)
-    if (o) fetchNotifications()
   }
 
   const handleMarkAllRead = async () => {

@@ -61,6 +61,24 @@ services:
     networks:
       - travel-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: travel-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - travel-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # 数据库初始化服务（仅在首次启动时运行）
   db-init:
     image: node:20-alpine
@@ -89,6 +107,8 @@ volumes:
   postgres_data:
     driver: local
   minio_data:
+    driver: local
+  redis_data:
     driver: local
   node_modules:
     driver: local
