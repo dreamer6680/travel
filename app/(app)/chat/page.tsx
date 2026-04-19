@@ -319,30 +319,35 @@ export default function ChatPage() {
               </p>
             )}
             {sessions.map((session) => (
-              <button
+              <div
                 key={session.id}
-                onClick={() => loadSession(session)}
                 className={cn(
-                  "w-full text-left rounded-lg px-3 py-2.5 group flex flex-col gap-0.5 transition-colors hover:bg-muted",
+                  "w-full rounded-lg px-3 py-2.5 group flex items-start gap-1 transition-colors hover:bg-muted",
                   currentSessionId === session.id && "bg-muted",
                 )}
               >
-                <div className="flex items-start justify-between gap-1">
-                  <span className="text-sm font-medium leading-snug line-clamp-2 flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => loadSession(session)}
+                  className="flex-1 min-w-0 text-left flex flex-col gap-0.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <span className="text-sm font-medium leading-snug line-clamp-2">
                     {session.title}
                   </span>
-                  <button
-                    onClick={(e) => deleteSession(e, session.id)}
-                    className="opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5 rounded p-0.5 hover:bg-destructive/10 hover:text-destructive transition-all"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-                <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <Clock className="h-2.5 w-2.5" />
-                  {formatSessionDate(session.updatedAt)}
-                </div>
-              </button>
+                  <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Clock className="h-2.5 w-2.5" />
+                    {formatSessionDate(session.updatedAt)}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => deleteSession(e, session.id)}
+                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5 rounded p-0.5 hover:bg-destructive/10 hover:text-destructive transition-all"
+                  aria-label="删除会话"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
             ))}
           </div>
         </ScrollArea>

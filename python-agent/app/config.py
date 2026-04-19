@@ -20,7 +20,10 @@ class Settings:
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_chat_model: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
-    request_timeout_seconds: float = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "60"))
+    # 普通 chat/completions（planner 等）
+    request_timeout_seconds: float = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "120"))
+    # writer 润色整份 days JSON，单次 prompt 大、Ollama 推理慢，易触发 ReadTimeout，默认单独放宽
+    writer_llm_timeout_seconds: float = float(os.getenv("WRITER_LLM_TIMEOUT_SECONDS", "300"))
     postgres_url: str = os.getenv(
         "POSTGRES_URL",
         f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'postgres123')}"

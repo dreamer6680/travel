@@ -12,19 +12,14 @@ import { useRouter } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { TripRouteMap } from "@/components/trip-route-map"
+import type { TripActivityBase } from "@/lib/types/trip"
+
 interface TripWithLocations {
   destination: string
   days: Array<{
     day: number
     title: string
-    activities: Array<{
-      time: string
-      title: string
-      type: string
-      description: string
-      location?: string
-      coordinate?: { lat: number; lng: number }
-    }>
+    activities: TripActivityBase[]
   }>
   allLocations: Array<{ name: string; coordinate: { lat: number; lng: number } }>
 }
@@ -42,16 +37,12 @@ interface Trip {
   days: {
     day: number
     title: string
-    activities: {
-      time: string
-      title: string
-      type: string
-      description: string
-    }[]
+    activities: TripActivityBase[]
   }[]
   recommendations: {
     name: string
     type: string
+    attractionId?: string
   }[]
   practicalInfo: {
     transportation: {
@@ -68,8 +59,21 @@ interface Trip {
   }
   /** 用户选择的酒店（在结果页从推荐中选定后写入） */
   selectedAccommodation?: { name: string; cost: number }
+  estimatedCost?: number
   /** 系统选定的酒店（行程以该酒店为每日起止，含公交规划） */
-  selectedHotel?: { name: string; cost: number; latitude?: number; longitude?: number }
+  selectedHotel?: {
+    name: string
+    cost: number
+    totalCost?: number
+    priceDisplay?: string
+    rating?: number
+    address?: string
+    positionDesc?: string
+    imageUrl?: string
+    latitude?: number
+    longitude?: number
+    hotelId?: string
+  }
 }
 
 const TRAVEL_STYLE_META: Record<string, { label: string; description: string }> = {
@@ -289,11 +293,22 @@ export default function TripResultPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">总预算</CardTitle>
+              <CardTitle className="text-lg">预算概览</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">¥{trip.budget.toLocaleString()} / 人</p>
-              <p className="text-sm text-muted-foreground">包含交通、住宿和主要活动</p>
+              {trip.estimatedCost ? (
+                <>
+                  <p className="text-2xl font-bold">¥{trip.estimatedCost.toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground">
+                    预估花费 / 上限 ¥{trip.budget.toLocaleString()}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold">¥{trip.budget.toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground">总预算 / 人</p>
+                </>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -352,6 +367,7 @@ export default function TripResultPage() {
                               title={activity.title}
                               type={activity.type}
                               description={activity.description}
+                              priceYuan={activity.priceYuan}
                             />
                           ))}
                         </div>
@@ -457,10 +473,27 @@ export default function TripResultPage() {
                           <CardContent className="p-4 flex items-center gap-3">
                             <Hotel className="h-5 w-5 text-primary shrink-0" />
                             <div className="min-w-0 flex-1">
-                              <p className="font-medium">{trip.selectedHotel.name}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-medium">{trip.selectedHotel.name}</p>
+                                {trip.selectedHotel.rating && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    ★ {trip.selectedHotel.rating}
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-sm text-muted-foreground">
-                                ¥{trip.selectedHotel.cost.toLocaleString()}/晚
+                                {trip.selectedHotel.priceDisplay || `¥${trip.selectedHotel.cost.toLocaleString()}/晚`}
+                                {trip.selectedHotel.totalCost && (
+                                  <span className="ml-2 text-xs">
+                                    · 共 ¥{trip.selectedHotel.totalCost.toLocaleString()}
+                                  </span>
+                                )}
                               </p>
+                              {trip.selectedHotel.positionDesc && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {trip.selectedHotel.positionDesc}
+                                </p>
+                              )}
                             </div>
                           </CardContent>
                         </Card>
@@ -567,11 +600,13 @@ function DayActivity({
   title,
   type,
   description,
+  priceYuan,
 }: {
   time: string
   title: string
   type: string
   description: string
+  priceYuan?: number
 }) {
   const getIcon = () => {
     switch (type) {
@@ -598,9 +633,14 @@ function DayActivity({
         <div className="flex items-center gap-2 mb-1">
           <div className="p-1.5 rounded-full bg-primary/10 text-primary">{getIcon()}</div>
           <h4 className="font-medium">{title}</h4>
-          <Badge variant="outline" className="ml-auto">
-            {type}
-          </Badge>
+          <div className="ml-auto flex items-center gap-1.5">
+            {priceYuan && (
+              <Badge variant="secondary" className="text-xs">
+                人均 ¥{priceYuan}
+              </Badge>
+            )}
+            <Badge variant="outline">{type}</Badge>
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>

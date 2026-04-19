@@ -34,6 +34,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("poi_scraper")
 
+
+def _load_env_local() -> None:
+    """与 main() 一致：从仓库根目录 .env.local 注入环境变量（须早于下方 os.getenv）。"""
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env.local"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env_local()
+
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
@@ -185,11 +200,64 @@ async def get_embedding(client: httpx.AsyncClient, text: str) -> Optional[List[f
 # DB 写入
 # ---------------------------------------------------------------------------
 
+_RESTAURANT_TYPES_RAW = {"餐饮", "餐厅", "中餐", "西餐", "日料", "火锅", "烧烤", "小吃", "咖啡", "茶"}
+
+
+def _is_restaurant_poi(poi_type_raw: str) -> bool:
+    return any(k in poi_type_raw for k in _RESTAURANT_TYPES_RAW) or poi_type_raw.startswith("050")
+
+
+async def _migrate_poi_ids_to_text(conn: asyncpg.Connection) -> None:
+    """高德 POI id 为字符串（如 B0FFJZ27XA）。旧库若将 hotel_id/attraction_id 建成整数会写入失败。"""
+    await conn.execute(
+        """
+        DO $migrate$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'hotels'
+              AND column_name = 'hotel_id'
+              AND udt_name IN ('int4', 'int8')
+          ) THEN
+            ALTER TABLE hotels
+              ALTER COLUMN hotel_id TYPE TEXT USING hotel_id::text;
+          END IF;
+
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'attractions'
+              AND column_name = 'attraction_id'
+              AND udt_name IN ('int4', 'int8')
+          ) THEN
+            ALTER TABLE attractions
+              ALTER COLUMN attraction_id TYPE TEXT USING attraction_id::text;
+          END IF;
+        END
+        $migrate$;
+        """
+    )
+    # ON CONFLICT(…) 需要唯一约束；若库中已有重复 id，建索引会失败，仅记录警告
+    for stmt, label in (
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS hotels_hotel_id_uidx ON hotels (hotel_id);",
+            "hotels.hotel_id",
+        ),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS attractions_attraction_id_uidx ON attractions (attraction_id);",
+            "attractions.attraction_id",
+        ),
+    ):
+        try:
+            await conn.execute(stmt)
+        except Exception as exc:
+            logger.warning("未创建 %s 唯一索引（可能已存在约束或存在重复键）: %s", label, exc)
+
+
 async def ensure_tables(conn: asyncpg.Connection) -> None:
-    """确保 attraction_vectors / hotel_vectors 表存在（含 pgvector 扩展）。"""
+    """确保三张向量表存在（含 pgvector 扩展）。"""
     await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
     await conn.execute("""
-        CREATE TABLE IF NOT EXISTS attraction_vectors (
+        CREATE TABLE IF NOT EXISTS attractions (
             id            SERIAL PRIMARY KEY,
             attraction_id TEXT UNIQUE NOT NULL,
             name          TEXT NOT NULL,
@@ -204,9 +272,8 @@ async def ensure_tables(conn: asyncpg.Connection) -> None:
         );
     """)
     await conn.execute("""
-        CREATE TABLE IF NOT EXISTS hotel_vectors (
-            id            SERIAL PRIMARY KEY,
-            hotel_id      TEXT UNIQUE NOT NULL,
+        CREATE TABLE IF NOT EXISTS hotels (
+            hotel_id      TEXT PRIMARY KEY,
             name          TEXT NOT NULL,
             location      TEXT,
             rating        FLOAT,
@@ -220,7 +287,25 @@ async def ensure_tables(conn: asyncpg.Connection) -> None:
             created_at    TIMESTAMPTZ DEFAULT now()
         );
     """)
-    logger.info("表结构确认完毕")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS restaurants (
+            id            SERIAL PRIMARY KEY,
+            restaurant_id TEXT UNIQUE NOT NULL,
+            name          TEXT NOT NULL,
+            location      TEXT,
+            type          TEXT,
+            description   TEXT,
+            rating        FLOAT,
+            price_range   TEXT,
+            price_yuan    INTEGER,
+            latitude      FLOAT,
+            longitude     FLOAT,
+            embedding     vector(768),
+            created_at    TIMESTAMPTZ DEFAULT now()
+        );
+    """)
+    await _migrate_poi_ids_to_text(conn)
+    logger.info("表结构确认完毕（attractions / hotels / restaurants）")
 
 
 async def upsert_attraction(
@@ -240,7 +325,7 @@ async def upsert_attraction(
     vec_str = ("[" + ",".join(f"{float(x):.8f}" for x in embedding) + "]") if embedding else None
 
     sql = """
-    INSERT INTO attraction_vectors
+    INSERT INTO attractions
       (attraction_id, name, location, type, description, rating, latitude, longitude, embedding)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::vector)
     ON CONFLICT (attraction_id) DO UPDATE SET
@@ -251,7 +336,7 @@ async def upsert_attraction(
       rating      = EXCLUDED.rating,
       latitude    = EXCLUDED.latitude,
       longitude   = EXCLUDED.longitude,
-      embedding   = COALESCE(EXCLUDED.embedding, attraction_vectors.embedding)
+      embedding   = COALESCE(EXCLUDED.embedding, attractions.embedding)
     """
     await conn.execute(
         sql,
@@ -287,7 +372,7 @@ async def upsert_hotel(
     vec_str = ("[" + ",".join(f"{float(x):.8f}" for x in embedding) + "]") if embedding else None
 
     sql = """
-    INSERT INTO hotel_vectors
+    INSERT INTO hotels
       (hotel_id, name, location, rating, price_yuan, latitude, longitude,
        description, address, position_desc, embedding)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::vector)
@@ -295,13 +380,13 @@ async def upsert_hotel(
       name          = EXCLUDED.name,
       location      = EXCLUDED.location,
       rating        = EXCLUDED.rating,
-      price_yuan    = COALESCE(EXCLUDED.price_yuan, hotel_vectors.price_yuan),
+      price_yuan    = COALESCE(EXCLUDED.price_yuan, hotels.price_yuan),
       latitude      = EXCLUDED.latitude,
       longitude     = EXCLUDED.longitude,
       description   = EXCLUDED.description,
       address       = EXCLUDED.address,
       position_desc = EXCLUDED.position_desc,
-      embedding     = COALESCE(EXCLUDED.embedding, hotel_vectors.embedding)
+      embedding     = COALESCE(EXCLUDED.embedding, hotels.embedding)
     """
     await conn.execute(
         sql,
@@ -315,6 +400,59 @@ async def upsert_hotel(
         description,
         address,
         f"{city}·{poi.get('adname', '')}",
+        vec_str,
+    )
+
+
+async def upsert_restaurant(
+    conn: asyncpg.Connection,
+    poi: Dict[str, Any],
+    city: str,
+    embedding: Optional[List[float]],
+) -> None:
+    lat, lng = _parse_location(poi.get("location", ""))
+    type_label = _norm_type(poi.get("type", "餐厅"))
+    rating = None
+    price = None
+    try:
+        biz = poi.get("biz_ext", {})
+        rating = float(biz.get("rating") or poi.get("rating") or 0) or None
+        price = int(float(biz.get("cost") or biz.get("avg_cost") or 0)) or None
+    except Exception:
+        pass
+    price_range = f"人均约¥{price}" if price else None
+    description = poi.get("address") or poi.get("name", "")
+    vec_str = ("[" + ",".join(f"{float(x):.8f}" for x in embedding) + "]") if embedding else None
+
+    sql = """
+    INSERT INTO restaurants
+      (restaurant_id, name, location, type, description, rating, price_range, price_yuan,
+       latitude, longitude, embedding)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::vector)
+    ON CONFLICT (restaurant_id) DO UPDATE SET
+      name        = EXCLUDED.name,
+      location    = EXCLUDED.location,
+      type        = EXCLUDED.type,
+      description = EXCLUDED.description,
+      rating      = EXCLUDED.rating,
+      price_range = COALESCE(EXCLUDED.price_range, restaurants.price_range),
+      price_yuan  = COALESCE(EXCLUDED.price_yuan,  restaurants.price_yuan),
+      latitude    = EXCLUDED.latitude,
+      longitude   = EXCLUDED.longitude,
+      embedding   = COALESCE(EXCLUDED.embedding, restaurants.embedding)
+    """
+    await conn.execute(
+        sql,
+        poi.get("id", ""),
+        poi.get("name", ""),
+        city,
+        type_label,
+        description,
+        rating,
+        price_range,
+        price,
+        lat,
+        lng,
         vec_str,
     )
 
@@ -353,6 +491,7 @@ async def run(cities: List[str], poi_types: List[str]) -> None:
             for poi in pois:
                 poi_type_raw = poi.get("type", "")
                 is_hotel = any(k in poi_type_raw for k in ("酒店", "住宿", "宾馆", "客栈", "民宿"))
+                is_restaurant = _is_restaurant_poi(poi_type_raw)
 
                 # 生成文本 embedding
                 text = f"{city} {poi.get('name', '')} {poi.get('type', '')} {poi.get('address', '')}"
@@ -361,6 +500,8 @@ async def run(cities: List[str], poi_types: List[str]) -> None:
                 try:
                     if is_hotel and do_hotel:
                         await upsert_hotel(conn, poi, city, emb)
+                    elif is_restaurant:
+                        await upsert_restaurant(conn, poi, city, emb)
                     elif not is_hotel:
                         await upsert_attraction(conn, poi, city, emb)
                     saved += 1
@@ -378,14 +519,7 @@ async def run(cities: List[str], poi_types: List[str]) -> None:
 
 
 def main() -> None:
-    # 尝试加载 .env.local
-    env_path = Path(__file__).parent.parent.parent / ".env.local"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if "=" in line and not line.startswith("#"):
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip())
+    _load_env_local()
 
     parser = argparse.ArgumentParser(description="Amap POI 数据采集脚本")
     parser.add_argument(

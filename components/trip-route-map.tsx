@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { MapPin, Route, Clock, Utensils, ShoppingBag, Camera, Trees, BookOpen, Coffee } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { ActivityRef } from "@/lib/types/trip"
 
 interface Coordinate {
   lat: number
@@ -18,6 +19,7 @@ interface ActivityWithLocation {
   type: string
   description: string
   location?: string
+  ref?: ActivityRef
   coordinate?: Coordinate
 }
 

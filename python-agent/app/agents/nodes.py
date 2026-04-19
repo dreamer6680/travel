@@ -13,6 +13,7 @@ from ..services.pg_vector_store import pg_vector_store
 from ..services.routing_service import estimate_route_cost, nearest_neighbor_sort
 from ..services.trip_tools import (
     build_candidate_attractions,
+    build_candidate_restaurants,
     build_day_skeleton,
     build_trip_response,
     choose_hotel,
@@ -229,6 +230,7 @@ async def retrieval_agent(state: AgentState) -> AgentState:
         hotels.append(
             {
                 "id": idx,
+                "hotel_id": row.get("hotel_id"),
                 "name": _as_text(row.get("name"), f"{destination}推荐酒店{idx}"),
                 "cost": int(float(price_yuan or 500)),
                 "location": _as_text(row.get("location"), destination),
@@ -245,20 +247,56 @@ async def retrieval_agent(state: AgentState) -> AgentState:
         default_hotel = choose_hotel(destination, int(req.get("budget", 10000)))
         hotels = [default_hotel]
 
+    # --- 检索餐厅 ---
+    restaurant_rows = await data_sources.fetch_restaurants_by_embedding(
+        pref_emb, destination, interests, 20
+    )
+
+    restaurants: List[Dict[str, Any]] = []
+    for idx, row in enumerate(restaurant_rows[:20], start=1):
+        similarity = float(row.get("similarity") or 0.5)
+        rating = _as_float(row.get("rating"), 4.0)
+        match_score = min(similarity + (rating - 3.5) / 20.0, 1.0)
+        restaurants.append(
+            {
+                "id": idx,
+                "restaurant_id": row.get("restaurant_id"),
+                "name": _as_text(row.get("name"), f"{destination}推荐餐厅{idx}"),
+                "type": _as_text(row.get("type"), "餐厅"),
+                "description": _as_text(row.get("description"), "当地特色风味"),
+                "location": _as_text(row.get("location"), destination),
+                "rating": rating,
+                "price_yuan": row.get("price_yuan"),
+                "price_range": row.get("price_range"),
+                "latitude": row.get("latitude"),
+                "longitude": row.get("longitude"),
+                "similarity": similarity,
+                "match_score": match_score,
+            }
+        )
+
+    if not restaurants:
+        logger.warning("向量检索餐厅为空，使用候选兜底")
+        restaurants = build_candidate_restaurants(destination)
+
     # 按 match_score 排序
     top_attractions = sorted(attractions, key=lambda x: x.get("match_score", 0), reverse=True)
     top_hotels = sorted(hotels, key=lambda x: x.get("match_score", 0), reverse=True)
+    top_restaurants = sorted(restaurants, key=lambda x: x.get("match_score", 0), reverse=True)
 
     logger.info(
-        "retrieval_agent 完成: attractions=%d, hotels=%d",
+        "retrieval_agent 完成: attractions=%d, hotels=%d, restaurants=%d",
         len(top_attractions),
         len(top_hotels),
+        len(top_restaurants),
     )
     return {
         "candidate_attractions": attractions,
         "candidate_hotels": hotels,
+        "candidate_restaurants": restaurants,
         "top_attractions": top_attractions,
         "top_hotels": top_hotels,
+        "top_restaurants": top_restaurants,
     }
 
 
@@ -269,60 +307,49 @@ async def retrieval_agent(state: AgentState) -> AgentState:
 async def route_agent(state: AgentState) -> AgentState:
     """
     负责：
-    1. 对没有坐标的景点/酒店补充地理编码（DB 优先，再 Amap，再伪坐标）
+    1. 对没有坐标的景点/酒店/餐厅补充地理编码（DB 优先，再 Amap，再伪坐标）
     2. 用最近邻算法对每天景点排序，降低总行驶距离
     3. 计算各酒店 + 景点组合的路线成本
-
-    改进：跳过已有坐标的景点，避免冗余 API 调用。
     """
     req = state["request"]
     destination = req.get("destination", "")
     top_attractions: List[Dict[str, Any]] = state.get("top_attractions", [])
     top_hotels: List[Dict[str, Any]] = state.get("top_hotels", [])
+    top_restaurants: List[Dict[str, Any]] = state.get("top_restaurants", [])
 
-    # --- 补全景点坐标（仅对缺失者调用 geocode）---
-    geo_attractions: List[Dict[str, Any]] = []
-    for a in top_attractions:
-        lat = a.get("latitude")
-        lng = a.get("longitude")
-        refresh = bool(settings.amap_web_service_key and settings.amap_refresh_existing_coords)
-        if lat is None or lng is None or refresh:
-            geo = await geocode_poi(
-                str(a.get("name") or ""),
-                str(a.get("location") or ""),
-                destination,
-                entity="attraction",
-            )
-            lat, lng = geo["lat"], geo["lng"]
-        geo_attractions.append({**a, "latitude": float(lat), "longitude": float(lng)})
+    refresh = bool(settings.amap_web_service_key and settings.amap_refresh_existing_coords)
 
-    # --- 补全酒店坐标 ---
-    geo_hotels: List[Dict[str, Any]] = []
-    for h in top_hotels:
-        lat = h.get("latitude")
-        lng = h.get("longitude")
-        refresh = bool(settings.amap_web_service_key and settings.amap_refresh_existing_coords)
-        if lat is None or lng is None or refresh:
-            geo = await geocode_poi(
-                str(h.get("name") or ""),
-                str(h.get("location") or ""),
-                destination,
-                entity="hotel",
-            )
-            lat, lng = geo["lat"], geo["lng"]
-        geo_hotels.append({**h, "latitude": float(lat), "longitude": float(lng)})
+    async def _enrich(items: List[Dict[str, Any]], entity: str) -> List[Dict[str, Any]]:
+        result = []
+        for item in items:
+            lat = item.get("latitude")
+            lng = item.get("longitude")
+            if lat is None or lng is None or refresh:
+                geo = await geocode_poi(
+                    str(item.get("name") or ""),
+                    str(item.get("location") or ""),
+                    destination,
+                    entity=entity,
+                )
+                lat, lng = geo["lat"], geo["lng"]
+            result.append({**item, "latitude": float(lat), "longitude": float(lng)})
+        return result
+
+    geo_attractions = await _enrich(top_attractions, "attraction")
+    geo_hotels = await _enrich(top_hotels, "hotel")
+    geo_restaurants = await _enrich(top_restaurants, "restaurant")
 
     # --- 路线候选：每个候选酒店 × 最近邻排序后的景点 ---
-    attraction_pool = geo_attractions[:12]  # 最多取 12 个参与路线规划
+    attraction_pool = geo_attractions[:12]
     route_candidates: List[Dict[str, Any]] = []
     for hotel in geo_hotels[:5]:
-        # 对景点按最近邻排序（从酒店出发）
         sorted_attractions = nearest_neighbor_sort(hotel, attraction_pool)
         route = estimate_route_cost(hotel, sorted_attractions)
         route_candidates.append(
             {
                 "hotel": hotel,
                 "attractions": sorted_attractions,
+                "restaurants": geo_restaurants,  # 餐厅按邻近度在 trip_tools 中匹配
                 "route": route,
             }
         )
@@ -330,14 +357,16 @@ async def route_agent(state: AgentState) -> AgentState:
     day_skeleton = build_day_skeleton(req["startDate"], req["endDate"], destination)
 
     logger.info(
-        "route_agent 完成: geo_attractions=%d, geo_hotels=%d, route_candidates=%d",
+        "route_agent 完成: geo_attractions=%d, geo_hotels=%d, geo_restaurants=%d, route_candidates=%d",
         len(geo_attractions),
         len(geo_hotels),
+        len(geo_restaurants),
         len(route_candidates),
     )
     return {
         "geo_attractions": geo_attractions,
         "geo_hotels": geo_hotels,
+        "geo_restaurants": geo_restaurants,
         "route_candidates": route_candidates,
         "day_skeleton": day_skeleton,
     }
@@ -450,14 +479,53 @@ async def writer_agent(state: AgentState) -> AgentState:
     hotel: Dict[str, Any] = state.get("selected_hotel", {})
     plan_summary: str = state.get("plan", "")
 
-    # 使用路线优化后的景点顺序
+    # 使用路线优化后的景点顺序；餐厅使用 geo_restaurants（已补全坐标）
     attractions = best_plan.get(
         "attractions",
         state.get("top_attractions", state.get("candidate_attractions", [])),
     )
+    restaurants = best_plan.get(
+        "restaurants",
+        state.get("geo_restaurants", state.get("top_restaurants", state.get("candidate_restaurants", []))),
+    )
 
     # 构建草稿（保证结构完整，作为 fallback）
-    draft = build_trip_response(req, attractions, hotel, day_skeleton)
+    draft = build_trip_response(
+        req,
+        attractions,
+        restaurants,
+        hotel,
+        day_skeleton,
+        all_attractions=state.get("candidate_attractions", []),
+        all_hotels=state.get("candidate_hotels", []),
+        all_restaurants=state.get("candidate_restaurants", []),
+    )
+
+    _PRESERVED_ACTIVITY_FIELDS = ("ref", "priceYuan", "coordinate")
+
+    def _backup_activity_extras(days_src: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+        return [
+            [
+                {k: a[k] for k in _PRESERVED_ACTIVITY_FIELDS if k in a}
+                for a in (d.get("activities") or [])
+            ]
+            for d in (days_src or [])
+        ]
+
+    def _merge_activity_refs(
+        days_dest: List[Dict[str, Any]], backups: List[List[Dict[str, Any]]]
+    ) -> None:
+        for di, day in enumerate(days_dest or []):
+            if di >= len(backups):
+                break
+            acts = day.get("activities") or []
+            for ai, act in enumerate(acts):
+                if ai < len(backups[di]):
+                    for k, v in backups[di][ai].items():
+                        if k not in act or act[k] is None:
+                            act[k] = v
+
+    activity_ref_backup = _backup_activity_extras(draft.get("days", []))
 
     # 用于 Writer 提示词的预算档次说明
     budget_tier = (
@@ -474,6 +542,7 @@ async def writer_agent(state: AgentState) -> AgentState:
         "- 不要在描述中出现与预算不符的高档场所（如米其林餐厅）或过于低端的选择\n"
         "- 餐厅描述应包含大致人均消费参考\n"
         "请基于提供的行程草稿，优化每个活动的 title 和 description，使其更加生动具体、符合旅行风格。"
+        "每个 activity 若含 ref 对象（attractionId / hotelId），必须原样保留，不得删除或修改。"
         "严格保持 JSON 结构不变，不要增减字段，不要添加任何解释文字。"
         "只输出合法的 JSON 对象。"
     )
@@ -489,12 +558,22 @@ async def writer_agent(state: AgentState) -> AgentState:
 
     final_trip: Dict[str, Any] = draft
     try:
+        logger.info(
+            "writer_agent: 开始 LLM 润色 days=%d user_json_chars=%d read_timeout=%.0fs ollama_base=%s model=%s",
+            len(draft.get("days") or []),
+            len(user_prompt),
+            settings.writer_llm_timeout_seconds,
+            settings.ollama_base_url,
+            settings.ollama_chat_model,
+        )
         content = await model_router.chat_with_fallback(
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
+            read_timeout=settings.writer_llm_timeout_seconds,
         )
+        logger.info("writer_agent: LLM 返回 content_chars=%d", len(content))
         normalized = content.replace("```json", "").replace("```", "").strip()
         llm_result = json.loads(normalized)
 
@@ -502,11 +581,12 @@ async def writer_agent(state: AgentState) -> AgentState:
         if isinstance(llm_result, dict):
             if isinstance(llm_result.get("days"), list) and llm_result["days"]:
                 draft["days"] = llm_result["days"]
+                _merge_activity_refs(draft["days"], activity_ref_backup)
             if isinstance(llm_result.get("highlights"), list) and llm_result["highlights"]:
                 draft["highlights"] = llm_result["highlights"]
         final_trip = draft
     except Exception as exc:
-        logger.warning("writer_agent LLM 润色失败，使用草稿: %s", exc)
+        logger.warning("writer_agent LLM 润色失败，使用草稿: %r", exc)
         final_trip = draft
 
     # 最终兜底：保证 description 为字符串，避免 response_model 校验失败

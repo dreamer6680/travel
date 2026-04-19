@@ -271,13 +271,15 @@ async def geocode_poi(
     location: str,
     city: str,
     *,
-    entity: Literal["attraction", "hotel"] = "attraction",
+    entity: Literal["attraction", "hotel", "restaurant"] = "attraction",
 ) -> Dict[str, float]:
     """综合坐标：PG 向量表（按城市过滤）→ 高德多策略 → 城市中心 → 伪坐标。"""
     keyword = _extract_search_keyword(name or "", location or "", city)
     if len(keyword) >= 2:
         if entity == "hotel":
             coord = await pg_vector_store.lookup_hotel_coord(keyword, city)
+        elif entity == "restaurant":
+            coord = await pg_vector_store.lookup_restaurant_coord(keyword, city)
         else:
             coord = await pg_vector_store.lookup_attraction_coord(keyword, city)
         if coord:
@@ -315,10 +317,9 @@ async def geocode_name(name: str, city: str) -> Dict[str, float]:
 async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
     """为行程中每个活动补充坐标，并在相邻有坐标活动间规划公交路线。
 
-    查询策略（对应 v2 trip-location-enhancer.ts）：
-    1. 按活动 title/location 查 attraction_vectors 表
-    2. 未命中则调用高德地理编码
-    3. 两者均失败则使用伪坐标兜底
+    查询策略：
+    1. 若活动含 ref.attractionId / ref.hotelId，优先用 PG 主键解析精确坐标
+    2. 否则按 title/location 地理编码（景点/酒店向量表 → 高德 → 兜底）
     """
     destination = str(trip.get("destination", ""))
     days: List[Dict[str, Any]] = trip.get("days", []) or []
@@ -336,7 +337,35 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
         for act in activities:
             title = str(act.get("title", "")).strip()
             location = str(act.get("location", "")).strip()
-            coord = await geocode_poi(title, location, destination, entity="attraction")
+            ref = act.get("ref") if isinstance(act.get("ref"), dict) else {}
+            aid = ref.get("attractionId") if isinstance(ref, dict) else None
+            hid = ref.get("hotelId") if isinstance(ref, dict) else None
+            rid = ref.get("restaurantId") if isinstance(ref, dict) else None
+
+            coord: Optional[Dict[str, float]] = None
+            if aid:
+                row = await pg_vector_store.fetch_attraction_by_id(str(aid))
+                if row and row.get("latitude") is not None and row.get("longitude") is not None:
+                    coord = {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
+            elif hid:
+                row = await pg_vector_store.fetch_hotel_by_id(str(hid))
+                if row and row.get("latitude") is not None and row.get("longitude") is not None:
+                    coord = {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
+            elif rid:
+                row = await pg_vector_store.fetch_restaurant_by_id(str(rid))
+                if row and row.get("latitude") is not None and row.get("longitude") is not None:
+                    coord = {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
+
+            if coord is None:
+                t = str(act.get("type", ""))
+                if hid or "酒店" in t:
+                    entity: Literal["attraction", "hotel", "restaurant"] = "hotel"
+                elif rid or t in ("餐厅", "咖啡厅", "茶馆", "小吃", "美食"):
+                    entity = "restaurant"
+                else:
+                    entity = "attraction"
+                coord = await geocode_poi(title, location, destination, entity=entity)
+
             activity_coords.append(coord)
 
             loc_name = location or title

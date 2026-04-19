@@ -16,12 +16,15 @@ class AgentState(TypedDict, total=False):
     # Retrieval Agent 输出
     candidate_attractions: List[Dict[str, Any]]
     candidate_hotels: List[Dict[str, Any]]
+    candidate_restaurants: List[Dict[str, Any]]
     top_attractions: List[Dict[str, Any]]   # 按 match_score 排序
     top_hotels: List[Dict[str, Any]]        # 按 match_score 排序
+    top_restaurants: List[Dict[str, Any]]   # 按 match_score 排序
 
     # Route Agent 输出
     geo_attractions: List[Dict[str, Any]]   # 已补全坐标，最近邻排序
     geo_hotels: List[Dict[str, Any]]        # 已补全坐标
+    geo_restaurants: List[Dict[str, Any]]   # 已补全坐标
     route_candidates: List[Dict[str, Any]]  # 各酒店路线方案
     day_skeleton: List[Dict[str, Any]]
 

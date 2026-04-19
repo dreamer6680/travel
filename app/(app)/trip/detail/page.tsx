@@ -12,6 +12,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { TripRouteMap } from "@/components/trip-route-map"
+import type { TripActivityBase } from "@/lib/types/trip"
 
 interface Trip {
   id: string
@@ -26,23 +27,20 @@ interface Trip {
   days: {
     day: number
     title: string
-    activities: {
-      time: string
-      title: string
-      type: string
-      description: string
-    }[]
+    activities: TripActivityBase[]
   }[]
   recommendations: {
     name: string
     type: string
+    attractionId?: string
   }[]
   practicalInfo: {
     transportation: { name: string; cost: number; icon: string }[]
     accommodation: { name: string; cost: number; icon: string }[]
     tips: string[]
   }
-  selectedHotel?: { name: string; cost: number }
+  /** 系统选定酒店；hotelId 对应 PG hotel_vectors，用于地图与详情聚合 */
+  selectedHotel?: { name: string; cost: number; hotelId?: string }
 }
 
 const TRAVEL_STYLE_LABELS: Record<string, { label: string; desc: string }> = {

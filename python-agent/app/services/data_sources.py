@@ -27,6 +27,15 @@ class DataSources:
         )
         return self._rank_rows(raw, destination, "")[:limit]
 
+    async def fetch_restaurants_by_embedding(
+        self, embedding: List[float], destination: str, interests: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """按目的地过滤 + 向量检索餐厅，并按综合评分排序。"""
+        raw = await pg_vector_store.search_restaurants_by_destination(
+            embedding, destination, max(limit * 3, 40)
+        )
+        return self._rank_rows(raw, destination, interests)[:limit]
+
     def _rank_rows(
         self, rows: List[Dict[str, Any]], destination: str, interests: str
     ) -> List[Dict[str, Any]]:
