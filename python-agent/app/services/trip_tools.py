@@ -76,68 +76,160 @@ def build_day_skeleton(start_date: str, end_date: str, destination: str) -> List
 # 景点分配：按天均分 + 按 match_score 优先
 # ---------------------------------------------------------------------------
 
-_DAILY_TIME_SLOTS = [
-    ("09:00 - 11:30", "上午"),
-    ("14:00 - 17:00", "下午"),
-    ("19:00 - 21:00", "晚上"),
+_RESTAURANT_TYPES = {"餐厅", "咖啡厅", "茶馆", "小吃", "美食"}
+
+_LUNCH_TITLES = [
+    "午餐·附近特色餐厅",
+    "午餐·地道风味小馆",
+    "午餐·本地人气餐厅",
+]
+_DINNER_TITLES = [
+    "晚餐与夜游体验",
+    "品尝当地风味晚餐",
+    "夜市小吃与休闲夜游",
 ]
 
-_EVENING_ACTIVITY_TITLES = ["夜游与美食体验", "品尝当地夜宵", "夜市购物与休闲"]
+
+def _is_restaurant(attr: Dict[str, Any]) -> bool:
+    return str(attr.get("type", "")).strip() in _RESTAURANT_TYPES
 
 
 def _distribute_attractions(
     attractions: List[Dict[str, Any]], total_days: int
-) -> List[List[Dict[str, Any]]]:
-    """将景点按 match_score 降序后均匀分配到每天，尽量不重复。
+) -> List[Dict[str, Any]]:
+    """将景点和餐厅分开，按 match_score 降序后按天分配。
 
-    每天分配 2 个主要景点（上午 + 下午），晚上默认为自由活动。
-    若景点不足则循环使用。
+    每天结构：
+    - 上午景点 (slot 0)
+    - 下午景点 (slot 1)
+    - 可选午餐餐厅（来自 restaurants 池，与上午景点同区域）
+    - 可选晚餐餐厅
+
+    返回 dict: {day_idx: {morning, afternoon, lunch, dinner}}
     """
-    sorted_attrs = sorted(attractions, key=lambda x: x.get("match_score", 0), reverse=True)
-    slots_per_day = 2  # 上午 + 下午各一个景点
-    result: List[List[Dict[str, Any]]] = []
+    sightseeing = sorted(
+        [a for a in attractions if not _is_restaurant(a)],
+        key=lambda x: x.get("match_score", 0),
+        reverse=True,
+    )
+    restaurants = sorted(
+        [a for a in attractions if _is_restaurant(a)],
+        key=lambda x: x.get("match_score", 0),
+        reverse=True,
+    )
+
+    result: List[Dict[str, Any]] = []
+    slots_per_day = 2
     for day_idx in range(total_days):
-        day_pool: List[Dict[str, Any]] = []
-        for slot in range(slots_per_day):
-            global_idx = day_idx * slots_per_day + slot
-            attr = sorted_attrs[global_idx % len(sorted_attrs)]
-            day_pool.append(attr)
-        result.append(day_pool)
+        morning_idx = (day_idx * slots_per_day) % max(len(sightseeing), 1)
+        afternoon_idx = (day_idx * slots_per_day + 1) % max(len(sightseeing), 1)
+        morning = sightseeing[morning_idx] if sightseeing else None
+        afternoon = sightseeing[afternoon_idx] if sightseeing else None
+
+        # 从餐厅池中为午餐/晚餐分配，优先选与上午景点位置相近的（如有坐标）
+        lunch_idx = (day_idx * 2) % max(len(restaurants), 1)
+        dinner_idx = (day_idx * 2 + 1) % max(len(restaurants), 1)
+        lunch = restaurants[lunch_idx] if restaurants else None
+        dinner = restaurants[dinner_idx] if restaurants else None
+
+        result.append(
+            {
+                "morning": morning,
+                "afternoon": afternoon,
+                "lunch": lunch,
+                "dinner": dinner,
+            }
+        )
     return result
 
 
 def build_day_activities(
     day_num: int,
-    day_attractions: List[Dict[str, Any]],
+    day_slots: Dict[str, Any],
     destination: str,
 ) -> List[Dict[str, Any]]:
-    """为单天生成活动列表（上午、下午各一个景点，晚上自由活动）。"""
-    activities: List[Dict[str, Any]] = []
-    slot_times = [("09:00 - 11:30", "上午"), ("14:00 - 17:00", "下午")]
+    """按 上午景点 → 午餐 → 下午景点 → 晚餐 结构生成当天活动列表。
 
-    for slot_idx, attr in enumerate(day_attractions[:2]):
-        time_str, _ = slot_times[slot_idx]
+    餐厅的 location 使用附近景点的地址，提高地图精度。
+    """
+    activities: List[Dict[str, Any]] = []
+    morning = day_slots.get("morning")
+    afternoon = day_slots.get("afternoon")
+    lunch = day_slots.get("lunch")
+    dinner = day_slots.get("dinner")
+
+    # —— 上午景点 ——
+    if morning:
         activities.append(
             {
-                "time": time_str,
-                "title": attr["name"],
-                "type": attr.get("type", "景点"),
-                "description": str(attr.get("description", "")),
-                "location": str(attr.get("location", destination)),
+                "time": "09:00 - 11:30",
+                "title": morning["name"],
+                "type": morning.get("type", "景点"),
+                "description": str(morning.get("description", "")),
+                "location": str(morning.get("location", destination)),
             }
         )
 
-    # 晚上固定自由活动
-    evening_title = _EVENING_ACTIVITY_TITLES[(day_num - 1) % len(_EVENING_ACTIVITY_TITLES)]
-    activities.append(
-        {
-            "time": "19:00 - 21:00",
-            "title": f"{destination}{evening_title}",
-            "type": "休闲",
-            "description": "自由活动，体验当地夜生活、美食与文化。",
-            "location": destination,
-        }
-    )
+    # —— 午餐 ——
+    # 使用真实餐厅数据（有坐标），否则用上午景点附近的通用描述
+    lunch_location = str(morning.get("location", destination)) if morning else destination
+    if lunch:
+        activities.append(
+            {
+                "time": "12:00 - 13:30",
+                "title": lunch["name"],
+                "type": "餐厅",
+                "description": str(lunch.get("description", "品尝当地特色风味")),
+                "location": str(lunch.get("location", lunch_location)),
+            }
+        )
+    else:
+        lunch_title = _LUNCH_TITLES[(day_num - 1) % len(_LUNCH_TITLES)]
+        activities.append(
+            {
+                "time": "12:00 - 13:30",
+                "title": f"{destination}{lunch_title}",
+                "type": "餐厅",
+                "description": "就近享用午餐，品味当地特色风味小食。",
+                "location": lunch_location,
+            }
+        )
+
+    # —— 下午景点 ——
+    if afternoon:
+        activities.append(
+            {
+                "time": "14:00 - 17:00",
+                "title": afternoon["name"],
+                "type": afternoon.get("type", "景点"),
+                "description": str(afternoon.get("description", "")),
+                "location": str(afternoon.get("location", destination)),
+            }
+        )
+
+    # —— 晚餐 ——
+    dinner_location = str(afternoon.get("location", destination)) if afternoon else destination
+    dinner_title = _DINNER_TITLES[(day_num - 1) % len(_DINNER_TITLES)]
+    if dinner:
+        activities.append(
+            {
+                "time": "19:00 - 21:00",
+                "title": dinner["name"],
+                "type": "餐厅",
+                "description": str(dinner.get("description", "享用当地特色晚餐")),
+                "location": str(dinner.get("location", dinner_location)),
+            }
+        )
+    else:
+        activities.append(
+            {
+                "time": "19:00 - 21:00",
+                "title": f"{destination}{dinner_title}",
+                "type": "餐厅",
+                "description": "品尝当地特色晚餐，探索附近夜生活与夜市文化。",
+                "location": dinner_location,
+            }
+        )
     return activities
 
 
@@ -166,8 +258,8 @@ def build_trip_response(
     for day in day_skeleton:
         day_num = day["day"]
         day_idx = day_num - 1
-        day_attrs = distributed[day_idx] if day_idx < len(distributed) else []
-        activities = build_day_activities(day_num, day_attrs, request["destination"])
+        day_slots = distributed[day_idx] if day_idx < len(distributed) else {}
+        activities = build_day_activities(day_num, day_slots, request["destination"])
         days.append({"day": day_num, "title": day["title"], "activities": activities})
 
     # 预算分配

@@ -1,22 +1,15 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { TripMap } from "./trip-map"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Calendar, Route } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { MapPin, Route, Clock, Utensils, ShoppingBag, Camera, Trees, BookOpen, Coffee } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface Coordinate {
   lat: number
   lng: number
-}
-
-interface Marker {
-  position: Coordinate
-  title: string
-  content?: string
 }
 
 interface ActivityWithLocation {
@@ -28,386 +21,347 @@ interface ActivityWithLocation {
   coordinate?: Coordinate
 }
 
-/** 相邻两活动间的公交路线（来自高德公交规划） */
-interface TransitSegmentBetweenActivities {
+interface TransitSegment {
   fromTitle: string
   toTitle: string
   fromIndex: number
   toIndex: number
-  route: { duration: number; distance: number; segments: unknown[] }
+  route: {
+    duration: number
+    distance: number
+    segments: Array<{ type: string; name: string }>
+    /** 高德 API 返回的完整路径坐标，存在时用于绘制真实路线 */
+    polyline?: Coordinate[]
+  }
 }
 
 interface DayWithLocations {
   day: number
   title: string
   activities: ActivityWithLocation[]
-  transitSegments?: TransitSegmentBetweenActivities[]
+  transitSegments?: TransitSegment[]
 }
 
 interface TripRouteMapProps {
   destination: string
   days: DayWithLocations[]
-  allLocations: Array<{
-    name: string
-    coordinate: Coordinate
-  }>
+  allLocations: Array<{ name: string; coordinate: Coordinate }>
   className?: string
+  /** 地图高度，默认 400px */
+  mapHeight?: string
 }
 
-// 每天使用不同的颜色
 const DAY_COLORS = [
-  "#1890ff", // 蓝色
-  "#52c41a", // 绿色
-  "#faad14", // 橙色
-  "#f5222d", // 红色
-  "#722ed1", // 紫色
-  "#13c2c2", // 青色
-  "#eb2f96", // 粉色
-  "#fa8c16", // 橙红色
+  "#1677ff",  // 蓝
+  "#52c41a",  // 绿
+  "#fa8c16",  // 橙
+  "#eb2f96",  // 粉
+  "#722ed1",  // 紫
+  "#13c2c2",  // 青
+  "#f5222d",  // 红
+  "#a0d911",  // 黄绿
 ]
 
-export function TripRouteMap({
-  destination,
-  days,
-  allLocations,
-  className = "",
-}: TripRouteMapProps) {
-  const [displayMode, setDisplayMode] = useState<"daily" | "overall">("daily")
-  const [selectedDay, setSelectedDay] = useState<number | null>(null)
+function getActivityIcon(type: string) {
+  if (type.includes("餐厅") || type.includes("美食")) return <Utensils className="h-3.5 w-3.5" />
+  if (type.includes("咖啡")) return <Coffee className="h-3.5 w-3.5" />
+  if (type.includes("购物")) return <ShoppingBag className="h-3.5 w-3.5" />
+  if (type.includes("公园") || type.includes("自然")) return <Trees className="h-3.5 w-3.5" />
+  if (type.includes("博物馆") || type.includes("文化")) return <BookOpen className="h-3.5 w-3.5" />
+  return <Camera className="h-3.5 w-3.5" />
+}
 
-  // 计算地图中心点
-  const mapCenter = useMemo(() => {
-    // 先尝试从 days 中获取坐标
-    const allCoordinates: Coordinate[] = []
-    days.forEach((day) => {
-      day.activities.forEach((activity) => {
-        if (activity.coordinate && 
-            typeof activity.coordinate.lat === 'number' && 
-            typeof activity.coordinate.lng === 'number') {
-          allCoordinates.push(activity.coordinate)
-        }
-      })
-    })
-    
-    // 如果从 days 中获取不到，使用 allLocations
-    if (allCoordinates.length === 0 && allLocations.length > 0) {
-      allLocations.forEach((loc) => {
-        if (loc.coordinate && 
-            typeof loc.coordinate.lat === 'number' && 
-            typeof loc.coordinate.lng === 'number') {
-          allCoordinates.push(loc.coordinate)
-        }
-      })
+function isValidCoord(coord?: Coordinate): coord is Coordinate {
+  return (
+    !!coord &&
+    typeof coord.lat === "number" &&
+    typeof coord.lng === "number" &&
+    !isNaN(coord.lat) &&
+    !isNaN(coord.lng)
+  )
+}
+
+export function TripRouteMap({ destination, days, allLocations, className = "", mapHeight = "420px" }: TripRouteMapProps) {
+  // 自动选择第一天
+  const [selectedDay, setSelectedDay] = useState<number>(days[0]?.day ?? 1)
+  // 当前聚焦的活动序号（1-based，对应地图标记序号）
+  const [activeMarkerIndex, setActiveMarkerIndex] = useState<number | null>(null)
+
+  // 当 days 数据更新时，如果当前选择的天不存在则重置
+  useEffect(() => {
+    if (days.length > 0 && !days.find((d) => d.day === selectedDay)) {
+      setSelectedDay(days[0].day)
     }
+    setActiveMarkerIndex(null)
+  }, [days]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    if (allCoordinates.length === 0) {
-      return { lat: 39.9042, lng: 116.4074 } // 默认北京
-    }
-
-    const lats = allCoordinates.map((coord) => coord.lat)
-    const lngs = allCoordinates.map((coord) => coord.lng)
-
-    return {
-      lat: (Math.max(...lats) + Math.min(...lats)) / 2,
-      lng: (Math.max(...lngs) + Math.min(...lngs)) / 2,
-    }
-  }, [allLocations, days])
-
-  // 生成标记点
-  const markers = useMemo(() => {
-    if (displayMode === "daily" && selectedDay !== null) {
-      const day = days.find((d) => d.day === selectedDay)
-      if (!day) return []
-
-      return day.activities
-        .filter((activity) => {
-          const coord = activity.coordinate
-          return coord && 
-                 typeof coord.lat === 'number' && 
-                 typeof coord.lng === 'number' &&
-                 !isNaN(coord.lat) && 
-                 !isNaN(coord.lng)
-        })
-        .map((activity) => ({
-          position: activity.coordinate!,
-          title: activity.title,
-          content: `${activity.time}<br/>${activity.type}<br/>${activity.description}`,
-        }))
-    } else {
-      // 整体模式：显示所有地点（优先使用 days 中的坐标）
-      const markersFromDays: Marker[] = []
-      days.forEach((day) => {
-        day.activities.forEach((activity) => {
-          const coord = activity.coordinate
-          if (coord && 
-              typeof coord.lat === 'number' && 
-              typeof coord.lng === 'number' &&
-              !isNaN(coord.lat) && 
-              !isNaN(coord.lng)) {
-            // 避免重复
-            if (!markersFromDays.find(m => 
-              m.position.lat === coord.lat && m.position.lng === coord.lng
-            )) {
-              markersFromDays.push({
-                position: coord,
-                title: activity.title,
-                content: `${activity.time}<br/>${activity.type}`,
-              })
-            }
-          }
-        })
-      })
-      
-      // 如果从 days 中获取不到，使用 allLocations
-      if (markersFromDays.length > 0) {
-        return markersFromDays
-      }
-      
-      return allLocations
-        .filter((location) => {
-          const coord = location.coordinate
-          return coord && 
-                 typeof coord.lat === 'number' && 
-                 typeof coord.lng === 'number' &&
-                 !isNaN(coord.lat) && 
-                 !isNaN(coord.lng)
-        })
-        .map((location) => ({
-          position: location.coordinate,
-          title: location.name,
-          content: location.name,
-        }))
-    }
-  }, [displayMode, selectedDay, days, allLocations])
-
-  // 生成路线（有公交规划时：公交段画虚线，其余画实线）
-  const polylines = useMemo(() => {
-    const isValidCoordinate = (coord: Coordinate | undefined): coord is Coordinate => {
-      return !!coord &&
-        typeof coord.lat === "number" &&
-        typeof coord.lng === "number" &&
-        !isNaN(coord.lat) &&
-        !isNaN(coord.lng)
-    }
-
-    const buildDayPolylines = (
-      day: DayWithLocations,
-      dayIndex: number
-    ): Array<{ path: Coordinate[]; strokeColor: string; strokeWeight: number; strokeOpacity: number; strokeStyle?: "solid" | "dashed" }> => {
-      const dayActivities = day.activities.filter((activity) =>
-        isValidCoordinate(activity.coordinate)
-      )
-      if (dayActivities.length < 2) return []
-
-      const color = DAY_COLORS[dayIndex % DAY_COLORS.length]
-      const transitSet = new Set(
-        (day.transitSegments ?? []).map((s) => `${s.fromIndex}-${s.toIndex}`)
-      )
-      const result: Array<{
-        path: Coordinate[]
-        strokeColor: string
-        strokeWeight: number
-        strokeOpacity: number
-        strokeStyle?: "solid" | "dashed"
-      }> = []
-      for (let i = 0; i < dayActivities.length - 1; i++) {
-        const from = dayActivities[i].coordinate!
-        const to = dayActivities[i + 1].coordinate!
-        const isTransit = transitSet.has(`${i}-${i + 1}`)
-        result.push({
-          path: [from, to],
-          strokeColor: isTransit ? "#13c2c2" : color,
-          strokeWeight: isTransit ? 4 : displayMode === "daily" ? 4 : 3,
-          strokeOpacity: isTransit ? 0.9 : displayMode === "daily" ? 0.8 : 0.6,
-          strokeStyle: isTransit ? "dashed" : "solid",
-        })
-      }
-      return result
-    }
-
-    if (displayMode === "daily") {
-      if (selectedDay === null) return []
-      const day = days.find((d) => d.day === selectedDay)
-      if (!day) return []
-      return buildDayPolylines(day, selectedDay - 1)
-    }
-    return days.flatMap((day, dayIndex) => buildDayPolylines(day, dayIndex))
-  }, [displayMode, selectedDay, days])
-
-  // 计算总距离（估算）
-  const totalDistance = useMemo(() => {
-    let distance = 0
-    const isValidCoordinate = (coord: Coordinate | undefined): coord is Coordinate => {
-      return !!coord && 
-             typeof coord.lat === 'number' && 
-             typeof coord.lng === 'number' &&
-             !isNaN(coord.lat) && 
-             !isNaN(coord.lng)
-    }
-    
-    days.forEach((day) => {
-      const dayActivities = day.activities.filter((activity) => 
-        isValidCoordinate(activity.coordinate)
-      )
-      for (let i = 0; i < dayActivities.length - 1; i++) {
-        const from = dayActivities[i].coordinate!
-        const to = dayActivities[i + 1].coordinate!
-        // 使用 Haversine 公式计算距离
-        const R = 6371 // 地球半径（公里）
-        const dLat = ((to.lat - from.lat) * Math.PI) / 180
-        const dLon = ((to.lng - from.lng) * Math.PI) / 180
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos((from.lat * Math.PI) / 180) *
-            Math.cos((to.lat * Math.PI) / 180) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2)
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-        distance += R * c
-      }
-    })
-    return distance
-  }, [days])
-
-  // 检查是否有有效的坐标数据
-  const hasValidCoordinates = useMemo(() => {
-    // 检查 days 中是否有坐标
-    const hasDaysCoordinates = days.some((day) =>
-      day.activities.some((activity) => {
-        const coord = activity.coordinate
-        return coord && 
-               typeof coord.lat === 'number' && 
-               typeof coord.lng === 'number' &&
-               !isNaN(coord.lat) && 
-               !isNaN(coord.lng)
-      })
-    )
-    
-    // 检查 allLocations 中是否有坐标
-    const hasAllLocationsCoordinates = allLocations.some((location) => {
-      const coord = location.coordinate
-      return coord && 
-             typeof coord.lat === 'number' && 
-             typeof coord.lng === 'number' &&
-             !isNaN(coord.lat) && 
-             !isNaN(coord.lng)
-    })
-    
-    return hasDaysCoordinates || hasAllLocationsCoordinates
-  }, [days, allLocations])
-
-  if (!hasValidCoordinates) {
-    return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle>行程地图</CardTitle>
-          <CardDescription>暂无地点信息</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
-            <div className="text-center">
-              <MapPin className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-50" />
-              <p className="text-muted-foreground">无法获取地点坐标</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                请确保行程活动包含有效的地点坐标信息
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    )
+  // 切换天时清空聚焦
+  const handleSelectDay = (day: number) => {
+    setSelectedDay(day)
+    setActiveMarkerIndex(null)
   }
 
+  const currentDay = useMemo(
+    () => days.find((d) => d.day === selectedDay) ?? days[0],
+    [days, selectedDay]
+  )
+
+  // 地图中心（当前天的活动平均坐标）
+  const mapCenter = useMemo(() => {
+    const coords: Coordinate[] = []
+    if (currentDay) {
+      currentDay.activities.forEach((a) => { if (isValidCoord(a.coordinate)) coords.push(a.coordinate) })
+    }
+    if (coords.length === 0 && allLocations.length > 0) {
+      allLocations.forEach((l) => { if (isValidCoord(l.coordinate)) coords.push(l.coordinate) })
+    }
+    if (coords.length === 0) return { lat: 39.9042, lng: 116.4074 }
+    return {
+      lat: (Math.max(...coords.map((c) => c.lat)) + Math.min(...coords.map((c) => c.lat))) / 2,
+      lng: (Math.max(...coords.map((c) => c.lng)) + Math.min(...coords.map((c) => c.lng))) / 2,
+    }
+  }, [currentDay, allLocations])
+
+  const dayColor = DAY_COLORS[(selectedDay - 1) % DAY_COLORS.length]
+
+  // 生成编号标记
+  const markers = useMemo(() => {
+    if (!currentDay) return []
+    let idx = 0
+    return currentDay.activities
+      .filter((a) => isValidCoord(a.coordinate))
+      .map((a) => {
+        idx++
+        return {
+          position: a.coordinate!,
+          title: a.title,
+          content: `${a.time}`,
+          index: idx,
+          color: dayColor,
+          type: a.type,
+        }
+      })
+  }, [currentDay, dayColor])
+
+  // 生成路线：优先使用高德 API 返回的真实路径，否则降级为直线
+  const polylines = useMemo(() => {
+    if (!currentDay) return []
+    const validActs = currentDay.activities.filter((a) => isValidCoord(a.coordinate))
+    if (validActs.length < 2) return []
+
+    // 建立 fromIndex-toIndex → transitSegment 的映射（用原始活动下标）
+    const transitMap = new Map<string, TransitSegment>(
+      (currentDay.transitSegments ?? []).map((s) => [`${s.fromIndex}-${s.toIndex}`, s])
+    )
+
+    // 根据有坐标的活动重新计算其在原始 activities 数组中的下标
+    const validActsWithIdx = currentDay.activities
+      .map((a, i) => ({ act: a, origIdx: i }))
+      .filter(({ act }) => isValidCoord(act.coordinate))
+
+    return validActsWithIdx.slice(0, -1).map(({ act, origIdx }, i) => {
+      const nextOrigIdx = validActsWithIdx[i + 1].origIdx
+      const seg = transitMap.get(`${origIdx}-${nextOrigIdx}`)
+      const realPath = seg?.route?.polyline
+
+      // 真实路径（公交 / 步行）：用 API 坐标；否则直线连接
+      const path: Coordinate[] =
+        realPath && realPath.length >= 2
+          ? realPath
+          : [act.coordinate!, validActsWithIdx[i + 1].act.coordinate!]
+
+      // 判断是否为步行（所有 segment 都是步行则为步行色，否则用公交色）
+      const isWalkOnly =
+        !!seg && seg.route.segments.every((s) => s.type === "步行")
+      const isTransit = !!seg && !isWalkOnly
+
+      return {
+        path,
+        strokeColor: isTransit ? "#13c2c2" : isWalkOnly ? "#52c41a" : dayColor,
+        strokeWeight: realPath && realPath.length >= 2 ? 4 : 3,
+        strokeOpacity: 0.85,
+        strokeStyle: (isWalkOnly ? "dashed" : "solid") as "solid" | "dashed",
+      }
+    })
+  }, [currentDay, dayColor])
+
+  const hasCoords = markers.length > 0
+
+  // 计算当日活动间总距离
+  const dayDistance = useMemo(() => {
+    if (!currentDay) return 0
+    const validActs = currentDay.activities.filter((a) => isValidCoord(a.coordinate))
+    let dist = 0
+    for (let i = 0; i < validActs.length - 1; i++) {
+      const a = validActs[i].coordinate!
+      const b = validActs[i + 1].coordinate!
+      const R = 6371
+      const dLat = ((b.lat - a.lat) * Math.PI) / 180
+      const dLng = ((b.lng - a.lng) * Math.PI) / 180
+      const x =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+      dist += 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+    }
+    return dist
+  }, [currentDay])
+
+  // 每天地图上实际有坐标的活动数（用于帮助文字）
+  const validCount = currentDay?.activities.filter((a) => isValidCoord(a.coordinate)).length ?? 0
+
   return (
-    <Card className={className}>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              行程地图
-            </CardTitle>
-            <CardDescription>
-              查看您的行程在地图上的分布
-              {days.some((d) => d.transitSegments?.length) ? " · 虚线为公交路线" : ""}
-            </CardDescription>
+    <Card className={cn("overflow-hidden", className)}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MapPin className="h-4 w-4 text-primary" />
+            行程地图
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {validCount > 0 && (
+              <span className="text-xs text-muted-foreground">{validCount} 个地点</span>
+            )}
+            {dayDistance > 0.5 && (
+              <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                <Route className="h-3 w-3" />
+                约 {dayDistance.toFixed(1)} 公里
+              </Badge>
+            )}
           </div>
-          {displayMode === "overall" && (
-            <Badge variant="outline" className="flex items-center gap-1">
-              <Route className="h-3 w-3" />
-              总距离: {totalDistance.toFixed(1)} 公里
-            </Badge>
-          )}
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <Tabs value={displayMode} onValueChange={(value) => setDisplayMode(value as "daily" | "overall")}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="daily">按天显示</TabsTrigger>
-            <TabsTrigger value="overall">整体路线</TabsTrigger>
-          </TabsList>
+      <CardContent className="p-0">
+        {/* 天数选择 */}
+        <div className="flex gap-1.5 px-4 pb-3 overflow-x-auto scrollbar-none">
+          {days.map((day, idx) => {
+            const color = DAY_COLORS[idx % DAY_COLORS.length]
+            const isSelected = day.day === selectedDay
+            const cnt = day.activities.filter((a) => isValidCoord(a.coordinate)).length
+            return (
+              <button
+                key={day.day}
+                onClick={() => handleSelectDay(day.day)}
+                className={cn(
+                  "flex-shrink-0 rounded-full px-3 py-1 text-xs font-medium border transition-all flex items-center gap-1",
+                  isSelected ? "text-white shadow-sm" : "bg-transparent text-muted-foreground hover:bg-muted"
+                )}
+                style={isSelected ? { backgroundColor: color, borderColor: color } : { borderColor: "#e5e7eb" }}
+              >
+                第 {day.day} 天
+                {cnt > 0 && (
+                  <span
+                    className={cn("rounded-full w-4 h-4 flex items-center justify-center text-[9px]",
+                      isSelected ? "bg-white/30" : "bg-muted")}
+                  >{cnt}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
 
-          {displayMode === "daily" && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {days.map((day) => (
-                  <Button
-                    key={day.day}
-                    variant={selectedDay === day.day ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedDay(selectedDay === day.day ? null : day.day)}
-                    className="flex items-center gap-2"
-                  >
-                    <Calendar className="h-4 w-4" />
-                    第 {day.day} 天
-                    {selectedDay === day.day && (
-                      <Badge variant="secondary" className="ml-1">
-                        {day.activities.filter((a) => a.coordinate).length} 个地点
-                      </Badge>
-                    )}
-                  </Button>
-                ))}
-              </div>
-
-              {selectedDay === null && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <MapPin className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>请选择要查看的日期</p>
-                </div>
-              )}
+        {/* 地图区域 */}
+        {hasCoords ? (
+          <TripMap
+            center={mapCenter}
+            markers={markers}
+            polylines={polylines}
+            height={mapHeight}
+            className="w-full rounded-none"
+            activeIndex={activeMarkerIndex}
+          />
+        ) : (
+          <div className="flex items-center justify-center bg-muted/40 mx-4 mb-4 rounded-xl" style={{ height: "200px" }}>
+            <div className="text-center text-muted-foreground">
+              <MapPin className="h-8 w-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">当日暂无坐标数据</p>
             </div>
-          )}
+          </div>
+        )}
 
-          {displayMode === "overall" && (
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                {days.map((day, index) => (
-                  <Badge
-                    key={day.day}
-                    variant="outline"
-                    style={{
-                      borderColor: DAY_COLORS[index % DAY_COLORS.length],
-                      color: DAY_COLORS[index % DAY_COLORS.length],
+        {/* 活动时间轴列表 —— 点击跳转地图 */}
+        {currentDay && currentDay.activities.length > 0 && (
+          <div className="px-4 pt-3 pb-4">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              {currentDay.title}
+              <span className="normal-case font-normal text-muted-foreground/60">· 点击地点可定位地图</span>
+            </p>
+            <div className="space-y-0">
+              {currentDay.activities.map((act, idx) => {
+                const hasCoord = isValidCoord(act.coordinate)
+                // 当前活动在有坐标活动中的序号（即地图标记序号）
+                const markerIdx = hasCoord
+                  ? currentDay.activities
+                      .slice(0, idx + 1)
+                      .filter((a) => isValidCoord(a.coordinate)).length
+                  : null
+                const isActive = markerIdx !== null && activeMarkerIndex === markerIdx
+
+                return (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "flex gap-3 group rounded-lg transition-colors",
+                      hasCoord ? "cursor-pointer hover:bg-muted/50" : "opacity-60",
+                      isActive && "bg-muted"
+                    )}
+                    onClick={() => {
+                      if (!hasCoord || markerIdx === null) return
+                      setActiveMarkerIndex(isActive ? null : markerIdx)
                     }}
                   >
-                    第 {day.day} 天
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                不同颜色代表不同天的路线，共 {allLocations.length} 个地点
-              </p>
-            </div>
-          )}
-        </Tabs>
+                    {/* 时间轴线 */}
+                    <div className="flex flex-col items-center ml-1">
+                      <div
+                        className={cn(
+                          "w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-2 transition-transform",
+                          isActive && "scale-110 shadow-md"
+                        )}
+                        style={{ backgroundColor: hasCoord ? dayColor : "#d1d5db" }}
+                      >
+                        {markerIdx ?? "·"}
+                      </div>
+                      {idx < currentDay.activities.length - 1 && (
+                        <div
+                          className="w-0.5 flex-1 my-0.5 min-h-[8px]"
+                          style={{ backgroundColor: hasCoord ? `${dayColor}30` : "#e5e7eb" }}
+                        />
+                      )}
+                    </div>
 
-        <TripMap
-          center={mapCenter}
-          markers={markers}
-          polylines={polylines}
-          height="500px"
-          className="w-full"
-        />
+                    {/* 活动内容 */}
+                    <div className="py-2 pr-2 flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-0.5 flex-shrink-0">
+                          <Clock className="h-3 w-3" />
+                          {act.time}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5 flex items-center gap-0.5">
+                          {getActivityIcon(act.type)}
+                          {act.type}
+                        </Badge>
+                        {hasCoord && (
+                          <MapPin className={cn("h-3 w-3 ml-auto flex-shrink-0",
+                            isActive ? "text-primary" : "text-muted-foreground/40 group-hover:text-primary/60"
+                          )} />
+                        )}
+                      </div>
+                      <p className={cn(
+                        "text-sm font-medium mt-0.5 truncate",
+                        isActive && "text-primary"
+                      )}>{act.title}</p>
+                      {act.location && act.location !== destination && (
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-0.5 mt-0.5 truncate">
+                          <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
+                          {act.location}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

@@ -6,11 +6,14 @@ import AppSidebar from "@/components/app-sidebar"
 import AppHeader from "@/components/app-header"
 import { cn } from "@/lib/utils"
 import { useUserStore } from "@/lib/store/user-store"
+import { usePathname } from "next/navigation"
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { checkAuth } = useUserStore()
+  const pathname = usePathname()
+  const isChat = pathname === "/chat"
 
   // 初次加载时检查登录态
   useEffect(() => {
@@ -40,8 +43,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* ── Main ── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <AppHeader onMenuClick={() => setMobileOpen((v) => !v)} />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl px-6 py-6">{children}</div>
+        <main className={cn("flex-1", isChat ? "overflow-hidden flex flex-col" : "overflow-y-auto")}>
+          {isChat ? children : (
+            <div className="mx-auto max-w-6xl px-6 py-6">{children}</div>
+          )}
         </main>
       </div>
     </div>

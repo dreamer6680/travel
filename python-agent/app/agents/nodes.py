@@ -91,20 +91,33 @@ async def planner_agent(state: AgentState) -> AgentState:
     start_date = req.get("startDate", "")
     end_date = req.get("endDate", "")
 
+    # 计算人均每日可支配预算，辅助 LLM 做档次判断
+    from datetime import datetime as _dt
+    try:
+        _days = max((_dt.fromisoformat(end_date) - _dt.fromisoformat(start_date)).days + 1, 1)
+    except Exception:
+        _days = 3
+    daily_budget = int(budget / max(_days, 1))
+
     # --- LLM 结构化需求提取 ---
     system_prompt = (
         "你是旅行 Planner Agent。请根据用户输入，以 JSON 格式输出规划策略，"
         "字段：mustVisit(必去景点列表)、preferredTypes(偏好景点类型列表)、"
-        "highlights(行程亮点列表，3-5条)、planSummary(一段简短规划思路描述)。"
+        "highlights(行程亮点列表，3-5条)、planSummary(一段简短规划思路描述)。\n"
+        "【预算约束 - 必须遵守】\n"
+        f"- 人均总预算 {budget} 元，行程天数 {_days} 天，人均每日约 {daily_budget} 元\n"
+        "- 预算涵盖酒店+交通+餐饮+门票，请在 planSummary 中说明如何分配\n"
+        "- 推荐的景点、餐厅档次必须与预算相符，严禁推荐明显超出预算的高消费场所\n"
+        "- 经济型预算(<5000元)：推荐实惠餐厅、平价景点；中端(5000-15000)：正餐+热门景点；高端(>15000)：精品体验\n"
         "只输出 JSON，不要附加任何解释。"
     )
     user_prompt = (
         f"目的地: {destination}\n"
         f"出行风格: {travel_style}\n"
         f"兴趣偏好: {interests}\n"
-        f"总预算: {budget} 元\n"
+        f"总预算: {budget} 元（人均，含全部支出）\n"
         f"出行人数: {travelers} 人\n"
-        f"日期: {start_date} 至 {end_date}"
+        f"日期: {start_date} 至 {end_date}（共 {_days} 天）"
     )
 
     structured: Dict[str, Any] = {}
@@ -348,6 +361,28 @@ async def budget_agent(state: AgentState) -> AgentState:
     route_candidates: List[Dict[str, Any]] = state.get("route_candidates", [])
     geo_attractions: List[Dict[str, Any]] = state.get("geo_attractions", [])
 
+    # --- 硬性预算过滤：仅保留单晚费用在合理范围内的方案 ---
+    total_days = len(state.get("day_skeleton", []))
+    # 酒店最多消耗总预算的 40%（留余地给交通/餐饮）
+    max_hotel_total = budget * 0.40
+    max_hotel_nightly = max(150, int(max_hotel_total / max(total_days, 1)))
+
+    affordable = [
+        c for c in route_candidates
+        if int(c["hotel"].get("cost", 500)) <= max_hotel_nightly
+    ]
+    if affordable:
+        route_candidates = affordable
+        logger.info(
+            "budget_agent: 预算过滤后剩余 %d 个路线方案 (最高单价 ¥%d/晚)",
+            len(route_candidates), max_hotel_nightly,
+        )
+    else:
+        logger.warning(
+            "budget_agent: 所有方案均超出每晚上限 ¥%d，保留全部方案并加重惩罚",
+            max_hotel_nightly,
+        )
+
     best: Optional[Dict[str, Any]] = None
     best_score = -1e9
 
@@ -424,9 +459,20 @@ async def writer_agent(state: AgentState) -> AgentState:
     # 构建草稿（保证结构完整，作为 fallback）
     draft = build_trip_response(req, attractions, hotel, day_skeleton)
 
+    # 用于 Writer 提示词的预算档次说明
+    budget_tier = (
+        "经济型（实惠餐厅、公共交通、平价景点）" if int(req.get("budget", 10000)) < 5000
+        else "中端（正餐、偶尔打车、热门景点）" if int(req.get("budget", 10000)) < 15000
+        else "高端（精品餐厅、舒适交通、优质体验）"
+    )
+
     # --- LLM 润色行程描述 ---
     system_prompt = (
-        "你是 ItineraryWriter Agent。"
+        "你是 ItineraryWriter Agent。\n"
+        f"【严格预算约束】人均总预算 {req.get('budget', 10000)} 元，消费档次：{budget_tier}。\n"
+        "- 活动描述中提及的餐厅、场所必须与该消费档次相符\n"
+        "- 不要在描述中出现与预算不符的高档场所（如米其林餐厅）或过于低端的选择\n"
+        "- 餐厅描述应包含大致人均消费参考\n"
         "请基于提供的行程草稿，优化每个活动的 title 和 description，使其更加生动具体、符合旅行风格。"
         "严格保持 JSON 结构不变，不要增减字段，不要添加任何解释文字。"
         "只输出合法的 JSON 对象。"
@@ -473,3 +519,73 @@ async def writer_agent(state: AgentState) -> AgentState:
 
     logger.info("writer_agent 完成: days=%d", len(final_trip.get("days", [])))
     return {"final_trip": final_trip}
+
+
+# ---------------------------------------------------------------------------
+# Budget Validator：校验并修正最终行程总花费
+# ---------------------------------------------------------------------------
+
+async def budget_validator(state: AgentState) -> AgentState:
+    """
+    在 Writer 生成行程后做最终预算校验（Reaction 机制）：
+    1. 计算 酒店总价 + 交通 + 餐饮 的预估总支出
+    2. 若超出用户预算，自动下调酒店单价，并更新 practicalInfo
+    3. 输出 budget_validated 摘要供日志追踪
+    """
+    req = state["request"]
+    budget = int(req.get("budget", 10000))
+    final_trip = state.get("final_trip", {})
+    total_days = len(final_trip.get("days", []))
+
+    hotel = final_trip.get("selectedHotel") or {}
+    hotel_nightly = int(hotel.get("cost", 500))
+    hotel_total = hotel_nightly * total_days
+
+    transport = max(int(budget * 0.15), 200)
+    food = max(int(budget * 0.25), 300)
+    estimated_total = hotel_total + transport + food
+
+    status = "ok"
+    adjustment = None
+
+    if estimated_total > budget and total_days > 0:
+        remaining_for_hotel = max(0, budget - transport - food)
+        new_nightly = max(150, remaining_for_hotel // total_days)
+
+        # 更新 selectedHotel
+        if final_trip.get("selectedHotel"):
+            final_trip["selectedHotel"]["cost"] = new_nightly
+
+        # 同步更新 practicalInfo.accommodation
+        prac = final_trip.get("practicalInfo", {})
+        for acc in prac.get("accommodation", []):
+            acc["cost"] = new_nightly
+            acc.pop("totalCost", None)
+            acc["totalCost"] = new_nightly * total_days
+            acc["nights"] = total_days
+
+        adjustment = {
+            "old_nightly": hotel_nightly,
+            "new_nightly": new_nightly,
+            "reason": f"酒店总价 ¥{hotel_total} + 交通 ¥{transport} + 餐饮 ¥{food} = ¥{estimated_total} > 预算 ¥{budget}",
+        }
+        status = "adjusted"
+        logger.warning(
+            "budget_validator: 超支调整 酒店 ¥%d→¥%d/晚 | 原估算 ¥%d > 预算 ¥%d",
+            hotel_nightly, new_nightly, estimated_total, budget,
+        )
+    else:
+        logger.info(
+            "budget_validator: 预算校验通过 (估算 ¥%d / 预算 ¥%d)",
+            estimated_total, budget,
+        )
+
+    return {
+        "final_trip": final_trip,
+        "budget_validated": {
+            "status": status,
+            "budget": budget,
+            "estimated_total": estimated_total,
+            "adjustment": adjustment,
+        },
+    }

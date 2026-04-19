@@ -129,12 +129,28 @@ async def _geocode_amap(address: str, city: str) -> Optional[Tuple[float, float]
     return None
 
 
+def _decode_amap_polyline(polyline_str: str) -> List[Dict[str, float]]:
+    """将高德 polyline 字符串（'lng,lat;lng,lat;...'）解码为坐标列表。"""
+    if not polyline_str:
+        return []
+    coords: List[Dict[str, float]] = []
+    for pair in polyline_str.split(";"):
+        pair = pair.strip()
+        if "," in pair:
+            try:
+                lng_s, lat_s = pair.split(",", 1)
+                coords.append({"lat": float(lat_s), "lng": float(lng_s)})
+            except ValueError:
+                pass
+    return coords
+
+
 async def _get_amap_transit_route(
     origin: Dict[str, float], destination_coord: Dict[str, float], city: str
 ) -> Optional[Dict[str, Any]]:
-    """调用高德公共交通路线规划 API，返回简化后的路线信息。
+    """调用高德公共交通路线规划 API，返回含完整 polyline 路径的路线信息。
 
-    对应 v2 的 amap-transit-service.ts getTransitRoute()。
+    使用 extensions=all 以获取每个换乘段的详细路径坐标。
     """
     if not settings.amap_web_service_key:
         return None
@@ -144,7 +160,7 @@ async def _get_amap_transit_route(
         "destination": f"{destination_coord['lng']},{destination_coord['lat']}",
         "city": city,
         "output": "json",
-        "extensions": "base",
+        "extensions": "all",
     }
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -158,24 +174,71 @@ async def _get_amap_transit_route(
             transits = route_data.get("transits", [])
             if transits:
                 best = transits[0]
+                # 拼接所有换乘段 polyline
+                full_path: List[Dict[str, float]] = []
+                seg_info = []
+                for seg in best.get("segments", []):
+                    walking = seg.get("walking") or {}
+                    bus_data = seg.get("bus") or {}
+                    buslines = bus_data.get("buslines") or []
+                    if walking:
+                        for step in walking.get("steps") or []:
+                            full_path.extend(_decode_amap_polyline(step.get("polyline", "")))
+                        seg_info.append({"type": "步行", "name": ""})
+                    if buslines:
+                        bl = buslines[0]
+                        full_path.extend(_decode_amap_polyline(bl.get("polyline", "")))
+                        seg_info.append({
+                            "type": bl.get("type", "公交"),
+                            "name": bl.get("name", ""),
+                        })
                 return {
                     "duration": int(best.get("duration", 0)),
                     "walking_distance": int(best.get("walking_distance", 0)),
-                    "cost": float(best.get("cost", {}).get("transit_fee", 0)),
-                    "segments": [
-                        {
-                            "type": seg.get("bus", {}).get("buslines", [{}])[0].get("type", "步行")
-                            if seg.get("bus")
-                            else "步行",
-                            "name": seg.get("bus", {}).get("buslines", [{}])[0].get("name", "")
-                            if seg.get("bus")
-                            else "",
-                        }
-                        for seg in best.get("segments", [])
-                    ],
+                    "cost": float((best.get("cost") or {}).get("transit_fee", 0)),
+                    "segments": seg_info,
+                    "polyline": full_path,
                 }
     except Exception as exc:
         logger.debug("高德公交路线规划失败: %s", exc)
+    return None
+
+
+async def _get_amap_walking_route(
+    origin: Dict[str, float], destination_coord: Dict[str, float]
+) -> Optional[Dict[str, Any]]:
+    """调用高德步行路线规划 API，作为公交路线的兜底方案。"""
+    if not settings.amap_web_service_key:
+        return None
+    params = {
+        "key": settings.amap_web_service_key,
+        "origin": f"{origin['lng']},{origin['lat']}",
+        "destination": f"{destination_coord['lng']},{destination_coord['lat']}",
+        "output": "json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://restapi.amap.com/v3/direction/walking", params=params
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        if data.get("status") == "1":
+            paths = (data.get("route") or {}).get("paths") or []
+            if paths:
+                best = paths[0]
+                full_path: List[Dict[str, float]] = []
+                for step in best.get("steps") or []:
+                    full_path.extend(_decode_amap_polyline(step.get("polyline", "")))
+                return {
+                    "duration": int(best.get("duration", 0)),
+                    "walking_distance": int(best.get("distance", 0)),
+                    "cost": 0.0,
+                    "segments": [{"type": "步行", "name": "步行路线"}],
+                    "polyline": full_path,
+                }
+    except Exception as exc:
+        logger.debug("高德步行路线规划失败: %s", exc)
     return None
 
 
@@ -295,6 +358,9 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
             i_from, act_from, coord_from = indexed_with_coord[j]
             i_to, act_to, coord_to = indexed_with_coord[j + 1]
             route = await _get_amap_transit_route(coord_from, coord_to, destination)
+            # 公交路线无结果或无 polyline 时降级到步行路线
+            if not route or not route.get("polyline"):
+                route = await _get_amap_walking_route(coord_from, coord_to)
             if route:
                 transit_segments.append(
                     {

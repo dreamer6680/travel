@@ -32,3 +32,6 @@ class AgentState(TypedDict, total=False):
 
     # Writer Agent 输出
     final_trip: Dict[str, Any]
+
+    # Budget Validator 输出
+    budget_validated: Dict[str, Any]

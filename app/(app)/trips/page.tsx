@@ -42,6 +42,7 @@ import {
 import Link from "next/link"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import { useUserStore } from "@/lib/store/user-store"
 
 // 定义行程类型
 interface Trip {
@@ -60,6 +61,7 @@ interface Trip {
 
 export default function TripsPage() {
   const { toast } = useToast()
+  const { user, isAuthenticated } = useUserStore()
   const [trips, setTrips] = useState<Trip[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -71,9 +73,10 @@ export default function TripsPage() {
     let pollTimer: ReturnType<typeof setTimeout> | null = null
 
     async function fetchTrips(silent = false) {
+      if (!isAuthenticated) return
       try {
         if (!silent) setIsLoading(true)
-        const data = await tripAPI.getUserTrips("user1")
+        const data = await tripAPI.getUserTrips()
         setTrips(data)
 
         // 有「生成中」的行程就继续轮询
@@ -92,7 +95,7 @@ export default function TripsPage() {
 
     fetchTrips()
     return () => { if (pollTimer) clearTimeout(pollTimer) }
-  }, [toast])
+  }, [toast, isAuthenticated])
 
   // 删除行程
   const handleDeleteTrip = async (tripId: string) => {
@@ -117,8 +120,8 @@ export default function TripsPage() {
   const filteredAndSortedTrips = trips
     .filter((trip) => {
       const matchesSearch =
-        trip.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        trip.destination.toLowerCase().includes(searchQuery.toLowerCase())
+        (trip.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (trip.destination ?? "").toLowerCase().includes(searchQuery.toLowerCase())
       const matchesStatus = statusFilter === "all" || trip.status === statusFilter
       return matchesSearch && matchesStatus
     })
@@ -452,7 +455,7 @@ function TripGrid({ trips, onDeleteTrip }: { trips: Trip[]; onDeleteTrip: (tripI
               </div>
 
               <Button className="w-full" variant="outline" asChild>
-                <Link href={`/trip/datail?id=${trip.id}`}>查看详情</Link>
+                <Link href={`/trip/detail?id=${trip.id}`}>查看详情</Link>
               </Button>
             </div>
           </CardContent>

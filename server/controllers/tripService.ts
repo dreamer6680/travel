@@ -51,17 +51,20 @@ export class TripService {
   }
 
   /**
-   * 将后台生成结果写入数据库
+   * 将后台生成结果写入数据库，初始置为草稿状态
    */
   async finalizeTripGeneration(id: string, result: any) {
     const col = await this.col()
+    // 先读取原始文档以保留 userId 等字段
+    const existing = await col.findOne({ id })
     return col.updateOne(
       { id },
       {
         $set: {
           ...result,
-          id, // 保持 id 不变
-          status: "planning",
+          id,                          // 保持 id 不变
+          userId: existing?.userId,    // 保持 userId 不变
+          status: "draft",             // AI 生成后为草稿，用户确认前可修改
           updatedAt: new Date().toISOString(),
         },
       }
@@ -91,14 +94,17 @@ export class TripService {
   }
 
   /**
-   * 确认行程
+   * 确认行程，将状态设置为 "confirmed"
    */
   async confirmTrip(tripData: any) {
     const client = await clientPromise
     const db = client.db("trip")
     const collection = db.collection("Trips")
+    // 去掉 MongoDB 内部字段 _id，避免 $set 时报错
+    const { _id, ...safeData } = tripData
     const updatedTrip = {
-      ...tripData,
+      ...safeData,
+      status: "confirmed",
       updatedAt: new Date().toISOString(),
     }
     const result = await collection.updateOne({ id: tripData.id }, { $set: updatedTrip })

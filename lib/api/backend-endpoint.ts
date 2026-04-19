@@ -16,6 +16,7 @@ export const backendEndpoint = {
     base: "/trips",
     byId: (id: string) => `/trips/${id}`,
     user: "/trips/user",
+    favorite: (id: string) => `/trips/${id}/favorite`,
   },
   // 推荐相关
   recommendations: {

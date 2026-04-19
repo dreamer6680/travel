@@ -14,8 +14,8 @@ export class TripService {
     return fetchAPI(backendEndpoint.trips.byId(tripId))
   }
 
-  getUserTrips(userId: string) {
-    return fetchAPI(`${backendEndpoint.trips.user}?userId=${userId}`)
+  getUserTrips() {
+    return fetchAPI(backendEndpoint.trips.user)
   }
 
   updateTrip(tripId: string, tripData: any) {
@@ -35,6 +35,16 @@ export class TripService {
   deleteTrip(tripId: string) {
     return fetchAPI(backendEndpoint.trips.byId(tripId), {
       method: "DELETE",
+    })
+  }
+
+  checkFavorite(tripId: string) {
+    return fetchAPI(backendEndpoint.trips.favorite(tripId))
+  }
+
+  toggleFavorite(tripId: string) {
+    return fetchAPI(backendEndpoint.trips.favorite(tripId), {
+      method: "POST",
     })
   }
 }
