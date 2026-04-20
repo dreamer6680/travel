@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessage(BaseModel):
@@ -25,23 +25,17 @@ class TripGenerateRequest(BaseModel):
     interests: str = ""
 
 
-class ActivityRefModel(BaseModel):
-    """PG 向量库主键，供地图与聚合查询。"""
-
-    attractionId: Optional[str] = None
-    hotelId: Optional[str] = None
-    restaurantId: Optional[str] = None
-
-
 class ActivityModel(BaseModel):
-    """有 ref 时 title/description/location 可省略，由 PG 侧聚合补全。"""
+    """有 PG id 时 title/description/location 可省略，由 /v1/trips/locations 补全。"""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     time: str
-    type: str
+    from_: str = Field(alias="from")
+    id: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
-    ref: Optional[ActivityRefModel] = None
     priceYuan: Optional[int] = None
 
 
@@ -95,6 +89,7 @@ class AlternativesModel(BaseModel):
 class PracticalInfoModel(BaseModel):
     transportation: List[Dict[str, Any]] = Field(default_factory=list)
     accommodation: List[Dict[str, Any]] = Field(default_factory=list)
+    food: List[Dict[str, Any]] = Field(default_factory=list)
     tips: List[str] = Field(default_factory=list)
 
 
@@ -113,7 +108,9 @@ class TripResponseModel(BaseModel):
     recommendations: List[RecommendationModel] = Field(default_factory=list)
     practicalInfo: PracticalInfoModel = Field(default_factory=PracticalInfoModel)
     estimatedCost: Optional[int] = None
-    selectedHotel: Optional[Dict[str, Any]] = None
+    selectedHotelId: Optional[str] = None
+    hotelNightlyCost: Optional[int] = None
+    hotelTotalCost: Optional[int] = None
     alternatives: AlternativesModel = Field(default_factory=AlternativesModel)
     createdAt: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updatedAt: str = Field(default_factory=lambda: datetime.utcnow().isoformat())

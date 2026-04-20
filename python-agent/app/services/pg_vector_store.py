@@ -464,7 +464,7 @@ class PgVectorStore:
                 SELECT restaurant_id, name, location, type, description, rating,
                        price_range, price_yuan, latitude, longitude
                 FROM restaurants
-                WHERE restaurant_id = $1
+                WHERE restaurant_id::text = $1
                 LIMIT 1
                 """,
             ),
@@ -474,7 +474,7 @@ class PgVectorStore:
                 SELECT restaurant_id, name, location, type, description, rating,
                        price_range, price_yuan, latitude, longitude
                 FROM restaurant_vectors
-                WHERE restaurant_id = $1
+                WHERE restaurant_id::text = $1
                 LIMIT 1
                 """,
             ),

@@ -20,14 +20,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { formatTripActivityType, type TripActivityBase } from "@/lib/types/trip"
+import { formatTripActivityType, type TripActivityStored } from "@/lib/types/trip"
 
 interface TripWithLocations {
   destination: string
   days: Array<{
     day: number
     title: string
-    activities: TripActivityBase[]
+    activities: TripActivityStored[]
   }>
   allLocations: Array<{ name: string; coordinate: { lat: number; lng: number } }>
 }
@@ -45,7 +45,7 @@ interface Trip {
   days: {
     day: number
     title: string
-    activities: TripActivityBase[]
+    activities: TripActivityStored[]
   }[]
   recommendations: {
     name: string
@@ -68,10 +68,13 @@ interface Trip {
   /** 用户选择的酒店（在结果页从推荐中选定后写入） */
   selectedAccommodation?: { name: string; cost: number }
   estimatedCost?: number
-  /** 系统选定的酒店（行程以该酒店为每日起止，含公交规划） */
+  selectedHotelId?: string
+  hotelNightlyCost?: number
+  hotelTotalCost?: number
+  /** locations 接口补全后的视图 */
   selectedHotel?: {
-    name: string
-    cost: number
+    name?: string
+    cost?: number
     totalCost?: number
     priceDisplay?: string
     rating?: number
@@ -101,12 +104,16 @@ function formatActivityCoord(c?: { lat: number; lng: number }): string {
   return `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`
 }
 
-function formatRefId(ref?: TripActivityBase["ref"]): string {
-  if (!ref) return "—"
-  if (ref.attractionId) return ref.attractionId
-  if (ref.restaurantId) return ref.restaurantId
-  if (ref.hotelId) return ref.hotelId
-  return "—"
+function formatEntityId(activity: TripActivityStored): string {
+  return activity.id?.trim() ? activity.id : "—"
+}
+
+function normalizeDisplayText(value: string | null | undefined): string {
+  const text = (value ?? "").trim()
+  if (!text) return "—"
+  const lower = text.toLowerCase()
+  if (lower === "none" || lower === "null" || lower === "undefined") return "—"
+  return text
 }
 
 function safeParseTrip(raw: string | null): Trip | null {
@@ -394,7 +401,7 @@ export default function TripResultPage() {
                       </AccordionTrigger>
                       <AccordionContent>
                         <p className="text-xs text-muted-foreground mb-3">
-                          坐标为 GCJ-02（与高德一致），由 PG 关联 ref 与路径规划接口补全。
+                          坐标为 GCJ-02（与高德一致），由 PG 关联 from+id 与路径规划接口补全。
                         </p>
                         <Table>
                           <TableHeader>
@@ -415,24 +422,24 @@ export default function TripResultPage() {
                                   {activity.time}
                                 </TableCell>
                                 <TableCell className="align-top font-medium">
-                                  {activity.title ?? "—"}
-                                  {activity.location ? (
+                                  {normalizeDisplayText(activity.title)}
+                                  {normalizeDisplayText(activity.location) !== "—" ? (
                                     <span className="block text-xs font-normal text-muted-foreground mt-1">
-                                      {activity.location}
+                                      {normalizeDisplayText(activity.location)}
                                     </span>
                                   ) : null}
                                 </TableCell>
                                 <TableCell className="align-top text-xs">
-                                  {formatTripActivityType(activity.type)}
+                                  {formatTripActivityType(activity.from)}
                                 </TableCell>
                                 <TableCell className="align-top font-mono text-xs text-muted-foreground">
-                                  {formatRefId(activity.ref)}
+                                  {formatEntityId(activity)}
                                 </TableCell>
                                 <TableCell className="align-top font-mono text-xs">
                                   {formatActivityCoord(activity.coordinate)}
                                 </TableCell>
                                 <TableCell className="align-top text-muted-foreground text-xs max-w-[280px]">
-                                  {activity.description ?? "—"}
+                                  {normalizeDisplayText(activity.description)}
                                 </TableCell>
                                 <TableCell className="align-top text-right whitespace-nowrap">
                                   {activity.priceYuan != null ? `¥${activity.priceYuan}` : "—"}
@@ -552,7 +559,12 @@ export default function TripResultPage() {
                                 )}
                               </div>
                               <p className="text-sm text-muted-foreground">
-                                {trip.selectedHotel.priceDisplay || `¥${trip.selectedHotel.cost.toLocaleString()}/晚`}
+                                {trip.selectedHotel.priceDisplay ||
+                                  (trip.selectedHotel.cost != null
+                                    ? `¥${trip.selectedHotel.cost.toLocaleString()}/晚`
+                                    : trip.hotelNightlyCost != null
+                                      ? `¥${trip.hotelNightlyCost.toLocaleString()}/晚`
+                                      : "—")}
                                 {trip.selectedHotel.totalCost && (
                                   <span className="ml-2 text-xs">
                                     · 共 ¥{trip.selectedHotel.totalCost.toLocaleString()}

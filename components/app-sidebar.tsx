@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { motion } from "framer-motion"
 import {
   MapPin,
   MessageCircle,
@@ -13,16 +14,14 @@ import {
   ShieldCheck,
   LogOut,
   LogIn,
-  ChevronLeft,
   Plane,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/lib/store/user-store"
-import { Separator } from "@/components/ui/separator"
 
+import { Separator } from "@/components/ui/separator"
 const NAV_MAIN = [
   { href: "/trips", label: "我的行程", icon: MapPin },
   { href: "/chat", label: "AI 助手", icon: MessageCircle },
@@ -37,38 +36,83 @@ const NAV_SECONDARY = [
 ]
 
 interface AppSidebarProps {
-  collapsed: boolean
-  onToggle: () => void
+  /**
+   * 桌面 md～lg：允许 w-16 窄栏；lg+ 宽度够时始终全宽 w-60（由外层隐藏整栏，无窄栏）
+   */
+  enableNarrowRail?: boolean
+  /** 仅在 enableNarrowRail 时生效：true 为窄栏仅图标 */
+  collapsed?: boolean
+  /** 窄栏时点击侧栏内区域展开 */
+  onExpand?: () => void
+  /** 移动端抽屉：点击菜单项后收起 */
+  onItemClick?: () => void
+  /**
+   * 移动端：由 layout 根据「抽屉是否已打开」决定回首页或仅开抽屉；
+   * 未传入时桌面点击 Logo 仍为 router.push("/")
+   */
+  onLogoClick?: () => void
 }
 
-export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
+export default function AppSidebar({
+  enableNarrowRail = false,
+  collapsed = false,
+  onExpand,
+  onItemClick,
+  onLogoClick,
+}: AppSidebarProps) {
   const pathname = usePathname()
   const { user, logout } = useUserStore()
+  const router = useRouter()
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/")
 
+  const narrow = enableNarrowRail && collapsed
+
+  const sidebarTransition = {
+    type: "spring" as const,
+    stiffness: 420,
+    damping: 36,
+    mass: 0.85,
+  }
+
   return (
     <TooltipProvider delayDuration={0}>
-      <aside
+      <motion.aside
+        initial={false}
+        animate={{ width: narrow ? 64 : 240 }}
+        transition={sidebarTransition}
+        onPointerDown={() => {
+          if (narrow) onExpand?.()
+        }}
         className={cn(
-          "relative flex flex-col h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 ease-in-out flex-shrink-0",
-          collapsed ? "w-16" : "w-60"
+          "relative flex h-screen flex-shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar"
         )}
       >
         {/* ── Logo ── */}
-        <div className={cn("flex items-center h-14 px-3 border-b border-sidebar-border", collapsed ? "justify-center" : "gap-3")}>
-          <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+        <button
+          type="button"
+          onClick={() => {
+            if (onLogoClick) {
+              onLogoClick()
+              return
+            }
+            router.push("/")
+          }}
+          className={cn(
+            "flex h-14 items-center border-b border-sidebar-border px-3",
+            narrow ? "justify-center" : "gap-3"
+          )}
+        >
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
             <Plane className="h-4 w-4 text-white" />
           </div>
-          {!collapsed && (
-            <span className="font-bold text-sidebar-foreground text-sm tracking-wide truncate">
-              旅行规划
-            </span>
+          {!narrow && (
+            <span className="truncate text-sm font-bold tracking-wide text-sidebar-foreground">旅行规划</span>
           )}
-        </div>
+        </button>
 
         {/* ── Main nav ── */}
-        <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4">
           {NAV_MAIN.map(({ href, label, icon: Icon }) => (
             <NavItem
               key={href}
@@ -76,7 +120,8 @@ export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
               label={label}
               icon={Icon}
               active={isActive(href)}
-              collapsed={collapsed}
+              collapsed={narrow}
+              onItemClick={onItemClick}
             />
           ))}
 
@@ -91,7 +136,8 @@ export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
               label={label}
               icon={Icon}
               active={isActive(href)}
-              collapsed={collapsed}
+              collapsed={narrow}
+              onItemClick={onItemClick}
             />
           ))}
 
@@ -101,25 +147,26 @@ export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
               label="后台管理"
               icon={ShieldCheck}
               active={isActive("/admin")}
-              collapsed={collapsed}
+              collapsed={narrow}
+              onItemClick={onItemClick}
             />
           )}
         </nav>
 
         {/* ── User area ── */}
-        <div className="border-t border-sidebar-border p-2 space-y-1">
+        <div className="space-y-1 border-t border-sidebar-border p-2">
           {user ? (
             <>
-              {!collapsed && (
-                <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
+              {!narrow && (
+                <div className="flex items-center gap-3 rounded-lg px-3 py-2">
                   <Avatar className="h-7 w-7 flex-shrink-0">
-                    <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                    <AvatarFallback className="bg-primary/10 text-xs text-primary">
                       {user.name?.charAt(0)?.toUpperCase() ?? "U"}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-sidebar-foreground truncate">{user.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-sidebar-foreground">{user.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                   </div>
                 </div>
               )}
@@ -128,7 +175,8 @@ export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
                 label="退出登录"
                 icon={LogOut}
                 active={false}
-                collapsed={collapsed}
+                collapsed={narrow}
+                onItemClick={onItemClick}
                 onClick={logout}
                 variant="ghost-danger"
               />
@@ -139,23 +187,12 @@ export default function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
               label="登录 / 注册"
               icon={LogIn}
               active={false}
-              collapsed={collapsed}
+              collapsed={narrow}
+              onItemClick={onItemClick}
             />
           )}
         </div>
-
-        {/* ── Collapse toggle ── */}
-        <button
-          onClick={onToggle}
-          className={cn(
-            "absolute -right-3 top-[3.25rem] z-10 flex h-6 w-6 items-center justify-center rounded-full border bg-background shadow-sm hover:bg-muted transition-colors",
-            "text-muted-foreground hover:text-foreground"
-          )}
-          aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
-        >
-          <ChevronLeft className={cn("h-3 w-3 transition-transform duration-300", collapsed && "rotate-180")} />
-        </button>
-      </aside>
+      </motion.aside>
     </TooltipProvider>
   )
 }
@@ -168,6 +205,7 @@ function NavItem({
   icon: Icon,
   active,
   collapsed,
+  onItemClick,
   onClick,
   variant = "default",
 }: {
@@ -176,16 +214,17 @@ function NavItem({
   icon: React.ComponentType<{ className?: string }>
   active: boolean
   collapsed: boolean
+  onItemClick?: () => void
   onClick?: () => void
   variant?: "default" | "ghost-danger"
 }) {
   const baseClass = cn(
-    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors w-full",
+    "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
     collapsed && "justify-center px-2",
     variant === "ghost-danger"
-      ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+      ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
       : active
-        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+        ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
         : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
   )
 
@@ -197,11 +236,24 @@ function NavItem({
   )
 
   const element = onClick ? (
-    <button className={baseClass} onClick={onClick}>
+    <button
+      type="button"
+      className={baseClass}
+      onClick={() => {
+        onItemClick?.()
+        onClick()
+      }}
+    >
       {content}
     </button>
   ) : (
-    <Link href={href} className={baseClass}>
+    <Link
+      href={href}
+      className={baseClass}
+      onClick={() => {
+        onItemClick?.()
+      }}
+    >
       {content}
     </Link>
   )

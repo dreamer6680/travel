@@ -1,5 +1,25 @@
-from dataclasses import dataclass
 import os
+from pathlib import Path
+
+# 须在 Settings 类体执行前加载：dataclass 字段默认值里的 os.getenv 在 import 时已求值
+AGENT_ROOT = Path(__file__).resolve().parent.parent
+AGENT_DOTENV_PATH = AGENT_ROOT / ".env"
+
+
+def _load_agent_dotenv() -> bool:
+    """从 python-agent/.env 注入环境变量。返回是否找到文件并成功调用 load_dotenv。"""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return False
+    if not AGENT_DOTENV_PATH.is_file():
+        return False
+    return bool(load_dotenv(AGENT_DOTENV_PATH))
+
+
+AGENT_DOTENV_APPLIED = _load_agent_dotenv()
+
+from dataclasses import dataclass
 
 
 @dataclass

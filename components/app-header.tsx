@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { Menu } from "lucide-react"
+import { Menu, Plane } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ModeToggle } from "@/components/mode-toggle"
 import {
@@ -33,9 +33,19 @@ const PAGE_TITLES: Record<string, string> = {
 
 interface AppHeaderProps {
   onMenuClick: () => void
+  /** 移动端：品牌区点击（抽屉开→首页；关→开抽屉），与侧栏内 Logo 一致 */
+  onMobileBrandClick?: () => void
+  /** lg+ 且桌面侧栏整栏收起时显示 */
+  showDesktopSidebarTrigger?: boolean
+  onDesktopSidebarOpen?: () => void
 }
 
-export default function AppHeader({ onMenuClick }: AppHeaderProps) {
+export default function AppHeader({
+  onMenuClick,
+  onMobileBrandClick,
+  showDesktopSidebarTrigger,
+  onDesktopSidebarOpen,
+}: AppHeaderProps) {
   const pathname = usePathname()
   const { user, logout } = useUserStore()
 
@@ -46,17 +56,42 @@ export default function AppHeader({ onMenuClick }: AppHeaderProps) {
     "旅行规划"
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b bg-background px-4 flex-shrink-0">
-      {/* mobile / collapse trigger */}
-      <Button variant="ghost" size="icon" className="md:hidden" onClick={onMenuClick}>
-        <Menu className="h-5 w-5" />
-      </Button>
+    <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b bg-background px-4">
+      {/* 移动端：菜单 + 品牌（抽屉关时点品牌仅开抽屉；抽屉开时在抽屉内点 Logo 回首页） */}
+      <div className="flex items-center gap-1 md:hidden">
+        <Button variant="ghost" size="icon" onClick={onMenuClick} aria-label="打开或关闭菜单">
+          <Menu className="h-5 w-5" />
+        </Button>
+        {onMobileBrandClick && (
+          <button
+            type="button"
+            onClick={onMobileBrandClick}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-sm"
+            aria-label="旅行规划"
+          >
+            <Plane className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* lg+ 侧栏整栏收起后，用菜单键重新打开 */}
+      {showDesktopSidebarTrigger && onDesktopSidebarOpen && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden lg:inline-flex"
+          onClick={onDesktopSidebarOpen}
+          aria-label="展开侧边栏"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+      )}
 
       {/* page title */}
-      <h1 className="flex-1 text-base font-semibold text-foreground">{title}</h1>
+      {/* <h1 className="flex-1 text-base font-semibold text-foreground">{title}</h1> */}
 
       {/* actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex w-full justify-end items-center gap-2">
         <ModeToggle />
 
         {user && <NotificationBell />}

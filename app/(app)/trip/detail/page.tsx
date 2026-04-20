@@ -12,36 +12,8 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { TripRouteMap } from "@/components/trip-route-map"
-import { formatTripActivityType, type TripActivityBase } from "@/lib/types/trip"
-
-interface Trip {
-  id: string
-  destination: string
-  startDate: string
-  endDate: string
-  travelers: number
-  budget: number
-  travelStyle: string
-  status: "generating" | "failed" | "draft" | "planning" | "confirmed" | "completed"
-  highlights: string[]
-  days: {
-    day: number
-    title: string
-    activities: TripActivityBase[]
-  }[]
-  recommendations: {
-    name: string
-    type: string
-    attractionId?: string
-  }[]
-  practicalInfo: {
-    transportation: { name: string; cost: number; icon: string }[]
-    accommodation: { name: string; cost: number; icon: string }[]
-    tips: string[]
-  }
-  /** 系统选定酒店；hotelId 对应 PG hotel_vectors，用于地图与详情聚合 */
-  selectedHotel?: { name: string; cost: number; hotelId?: string }
-}
+import { formatTripActivityType } from "@/lib/types/trip"
+import { useTripStore } from "@/lib/store/trip-store"
 
 const TRAVEL_STYLE_LABELS: Record<string, { label: string; desc: string }> = {
   relaxed:   { label: "休闲放松", desc: "注重休闲与放松" },
@@ -75,58 +47,20 @@ export default function TripDetailPage() {
   const tripId = searchParams.get("id")
   const { toast } = useToast()
 
-  const [trip, setTrip] = useState<Trip | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { fetchTrip, currentTrip, isLoading, error, invalidate } = useTripStore()
+  const trip = currentTrip()
+
   const [isSaved, setIsSaved] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
-  const [locationData, setLocationData] = useState<{
-    days: any[]
-    allLocations: any[]
-  } | null>(null)
-  const [isLoadingMap, setIsLoadingMap] = useState(false)
 
   useEffect(() => {
-    if (!tripId) {
-      setError("未找到行程ID")
-      setIsLoading(false)
-      return
-    }
-
-    async function load() {
-      try {
-        setIsLoading(true)
-        const [tripData, favData] = await Promise.all([
-          tripAPI.getTrip(tripId!),
-          tripAPI.checkFavorite(tripId!).catch(() => ({ favorited: false })),
-        ])
-        setTrip(tripData)
-        setIsSaved(favData.favorited)
-
-        // 异步获取地图位置数据（不阻塞页面渲染）
-        if (tripData?.days?.length > 0) {
-          setIsLoadingMap(true)
-          fetch("/api/trips/locations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ trip: tripData }),
-          })
-            .then((r) => r.json())
-            .then((locData) => setLocationData({ days: locData.days, allLocations: locData.allLocations }))
-            .catch((e) => console.warn("地图坐标获取失败:", e))
-            .finally(() => setIsLoadingMap(false))
-        }
-      } catch (err) {
-        console.error("获取行程数据失败:", err)
-        setError("获取行程数据失败，请稍后再试")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    load()
-  }, [tripId])
+    if (!tripId) return
+    Promise.all([
+      fetchTrip(tripId),
+      tripAPI.checkFavorite(tripId).catch(() => ({ favorited: false })),
+    ]).then(([, favData]) => setIsSaved(favData.favorited))
+  }, [tripId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggleFavorite = async () => {
     if (!trip || isSaving) return
@@ -149,8 +83,9 @@ export default function TripDetailPage() {
     if (!trip || isConfirming) return
     setIsConfirming(true)
     try {
-      const updated = await tripAPI.confirmTrip(trip)
-      setTrip({ ...trip, status: "confirmed" })
+      await tripAPI.confirmTrip(trip)
+      invalidate(trip.id)
+      await fetchTrip(trip.id, true)
       toast({ title: "行程已确认 ✓", description: "您的行程已成功确认" })
     } catch {
       toast({ title: "确认失败", description: "请稍后再试", variant: "destructive" })
@@ -162,7 +97,7 @@ export default function TripDetailPage() {
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" })
 
-  if (isLoading) {
+  if (!tripId || (isLoading && !trip)) {
     return (
       <div className="w-full py-8 flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
@@ -194,9 +129,7 @@ export default function TripDetailPage() {
   }
 
   const styleInfo = TRAVEL_STYLE_LABELS[trip.travelStyle] ?? { label: trip.travelStyle, desc: "" }
-  /** 地图接口会从 PG 按 ref 补全 title/description，列表优先用增强后的 days */
-  const itineraryDays =
-    locationData?.days && locationData.days.length > 0 ? locationData.days : trip.days
+  const itineraryDays = trip.days
   const tripDays = Math.ceil(
     (new Date(trip.endDate).getTime() - new Date(trip.startDate).getTime()) / (1000 * 60 * 60 * 24)
   )
@@ -288,20 +221,11 @@ export default function TripDetailPage() {
 
         {/* 地图视图（独立区块，预算卡片下方） */}
         <div className="mb-8">
-          {isLoadingMap ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12">
-                <div className="text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground">正在获取地点坐标...</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : locationData ? (
+          {trip.allLocations?.length ? (
             <TripRouteMap
               destination={trip.destination}
-              days={locationData.days}
-              allLocations={locationData.allLocations}
+              days={trip.days}
+              allLocations={trip.allLocations}
               mapHeight="500px"
             />
           ) : (
@@ -345,7 +269,7 @@ export default function TripDetailPage() {
                         </AccordionTrigger>
                         <AccordionContent>
                           <div className="space-y-6">
-                            {day.activities.map((activity: TripActivityBase, index: number) => (
+                            {day.activities.map((activity, index) => (
                               <DayActivity key={index} {...activity} />
                             ))}
                           </div>
@@ -415,14 +339,18 @@ export default function TripDetailPage() {
 
                   <div>
                     <h3 className="text-lg font-medium mb-3">住宿推荐</h3>
-                    {trip.selectedHotel && (
+                    {(trip.selectedHotel || trip.selectedHotelId) && (
                       <div className="mb-3 p-3 border rounded-md bg-primary/5">
                         <p className="text-sm font-medium text-primary mb-1">AI 推荐住宿</p>
                         <div className="flex items-center gap-2">
                           <Hotel className="h-4 w-4 text-primary" />
-                          <span className="font-medium">{trip.selectedHotel.name}</span>
+                          <span className="font-medium">
+                            {trip.selectedHotel?.name ?? (trip.selectedHotelId ? `酒店 ${trip.selectedHotelId}` : "—")}
+                          </span>
                           <span className="text-sm text-muted-foreground ml-auto">
-                            ¥{trip.selectedHotel.cost.toLocaleString()}/晚
+                            ¥
+                            {(trip.selectedHotel?.cost ?? trip.hotelNightlyCost ?? 0).toLocaleString()}
+                            /晚
                           </span>
                         </div>
                       </div>
@@ -462,6 +390,65 @@ export default function TripDetailPage() {
           </TabsContent>
         </Tabs>
 
+        {trip.alternatives &&
+          (trip.alternatives.attractions?.length > 0 ||
+            trip.alternatives.hotels?.length > 0 ||
+            trip.alternatives.restaurants?.length > 0) && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>备选推荐</CardTitle>
+              <CardDescription>可替换行程中的景点、酒店或餐厅（数据来自生成结果）</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="attractions">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="attractions">
+                    景点 ({trip.alternatives.attractions?.length ?? 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="hotels">
+                    酒店 ({trip.alternatives.hotels?.length ?? 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="restaurants">
+                    餐厅 ({trip.alternatives.restaurants?.length ?? 0})
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="attractions">
+                  <ul className="space-y-2 text-sm">
+                    {(trip.alternatives.attractions ?? []).map((a) => (
+                      <li key={a.attractionId} className="flex justify-between gap-2 border-b border-muted pb-2">
+                        <span className="font-medium">{a.name}</span>
+                        <span className="text-muted-foreground shrink-0">{a.type}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </TabsContent>
+                <TabsContent value="hotels">
+                  <ul className="space-y-2 text-sm">
+                    {(trip.alternatives.hotels ?? []).map((h) => (
+                      <li key={h.hotelId} className="flex justify-between gap-2 border-b border-muted pb-2">
+                        <span className="font-medium">{h.name}</span>
+                        <span className="text-muted-foreground shrink-0">
+                          {h.cost != null ? `¥${h.cost}/晚` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </TabsContent>
+                <TabsContent value="restaurants">
+                  <ul className="space-y-2 text-sm">
+                    {(trip.alternatives.restaurants ?? []).map((r) => (
+                      <li key={r.restaurantId} className="flex justify-between gap-2 border-b border-muted pb-2">
+                        <span className="font-medium">{r.name}</span>
+                        <span className="text-muted-foreground shrink-0">{r.type ?? ""}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        )}
+
         {/* 推荐景点 */}
         {trip.recommendations.length > 0 && (
           <Card>
@@ -494,17 +481,17 @@ export default function TripDetailPage() {
 function DayActivity({
   time,
   title,
-  type,
+  from,
   description,
 }: {
   time: string
   title?: string
-  type: string
+  from: string
   description?: string
 }) {
-  const t = type.toLowerCase()
+  const t = from.toLowerCase()
   const icon =
-    t === "restaurant" || type === "餐厅" ? (
+    t === "restaurant" ? (
       <Utensils className="h-5 w-5" />
     ) : (
       <MapPin className="h-5 w-5" />
@@ -522,7 +509,7 @@ function DayActivity({
         <div className="flex items-center gap-2 mb-1">
           <div className="p-1.5 rounded-full bg-primary/10 text-primary">{icon}</div>
           <h4 className="font-medium">{title ?? "地点"}</h4>
-          <Badge variant="outline" className="ml-auto">{formatTripActivityType(type)}</Badge>
+          <Badge variant="outline" className="ml-auto">{formatTripActivityType(from)}</Badge>
         </div>
         {description ? (
           <p className="text-sm text-muted-foreground">{description}</p>

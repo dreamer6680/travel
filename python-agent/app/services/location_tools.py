@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -10,6 +11,7 @@ from ..config import settings
 from .pg_vector_store import pg_vector_store
 
 logger = logging.getLogger(__name__)
+_PLACEHOLDER_NULL_TEXT = {"none", "null", "nan", "undefined", "-"}
 
 
 def _json_safe(obj: Any) -> Any:
@@ -168,6 +170,9 @@ async def _get_amap_transit_route(
     使用 extensions=all 以获取每个换乘段的详细路径坐标。
     """
     if not settings.amap_web_service_key:
+        logger.warning(
+            "高德公交规划跳过: 未配置 AMAP_WEB_SERVICE_KEY（也未从 NEXT_PUBLIC_AMAP_KEY 回退到非空），无法请求 transit/integrated"
+        )
         return None
     params = {
         "key": settings.amap_web_service_key,
@@ -184,38 +189,94 @@ async def _get_amap_transit_route(
             )
             resp.raise_for_status()
             data = resp.json()
-        if data.get("status") == "1":
-            route_data = data.get("route", {})
-            transits = route_data.get("transits", [])
-            if transits:
-                best = transits[0]
-                # 拼接所有换乘段 polyline
-                full_path: List[Dict[str, float]] = []
-                seg_info = []
-                for seg in best.get("segments", []):
-                    walking = seg.get("walking") or {}
-                    bus_data = seg.get("bus") or {}
-                    buslines = bus_data.get("buslines") or []
-                    if walking:
-                        for step in walking.get("steps") or []:
-                            full_path.extend(_decode_amap_polyline(step.get("polyline", "")))
-                        seg_info.append({"type": "步行", "name": ""})
-                    if buslines:
-                        bl = buslines[0]
-                        full_path.extend(_decode_amap_polyline(bl.get("polyline", "")))
-                        seg_info.append({
-                            "type": bl.get("type", "公交"),
-                            "name": bl.get("name", ""),
-                        })
-                return {
-                    "duration": int(best.get("duration", 0)),
-                    "walking_distance": int(best.get("walking_distance", 0)),
-                    "cost": float((best.get("cost") or {}).get("transit_fee", 0)),
-                    "segments": seg_info,
-                    "polyline": full_path,
-                }
+        api_status = data.get("status")
+        if api_status != "1":
+            logger.warning(
+                "高德公交规划 API 非成功: status=%s infocode=%s info=%s city=%s origin=%s,%s dest=%s,%s",
+                api_status,
+                data.get("infocode"),
+                data.get("info"),
+                city,
+                origin.get("lng"),
+                origin.get("lat"),
+                destination_coord.get("lng"),
+                destination_coord.get("lat"),
+            )
+            return None
+        route_data = data.get("route") or {}
+        if not isinstance(route_data, dict):
+            logger.warning("高德公交规划: route 非对象，已忽略 type=%s", type(route_data).__name__)
+            return None
+        transits = route_data.get("transits", [])
+        if not transits:
+            logger.warning(
+                "高德公交规划无方案: transits 为空 city=%s origin=%.5f,%.5f dest=%.5f,%.5f",
+                city,
+                origin.get("lng", 0),
+                origin.get("lat", 0),
+                destination_coord.get("lng", 0),
+                destination_coord.get("lat", 0),
+            )
+            return None
+        best = transits[0]
+        full_path: List[Dict[str, float]] = []
+        seg_info = []
+        for seg in best.get("segments") or []:
+            if not isinstance(seg, dict):
+                continue
+            walking_raw = seg.get("walking")
+            walking = walking_raw if isinstance(walking_raw, dict) else {}
+            bus_raw = seg.get("bus")
+            bus_data = bus_raw if isinstance(bus_raw, dict) else {}
+            buslines = bus_data.get("buslines") or []
+            if not isinstance(buslines, list):
+                buslines = []
+            if walking:
+                for step in walking.get("steps") or []:
+                    if not isinstance(step, dict):
+                        continue
+                    full_path.extend(_decode_amap_polyline(step.get("polyline", "")))
+                seg_info.append({"type": "步行", "name": ""})
+            if buslines:
+                bl = buslines[0]
+                if not isinstance(bl, dict):
+                    continue
+                full_path.extend(_decode_amap_polyline(bl.get("polyline", "")))
+                seg_info.append({
+                    "type": bl.get("type", "公交"),
+                    "name": bl.get("name", ""),
+                })
+        cost_raw = best.get("cost")
+        if isinstance(cost_raw, dict):
+            transit_fee = float(cost_raw.get("transit_fee") or 0)
+        else:
+            try:
+                transit_fee = float(cost_raw) if cost_raw is not None else 0.0
+            except (TypeError, ValueError):
+                transit_fee = 0.0
+        out = {
+            "duration": int(best.get("duration", 0)),
+            "walking_distance": int(best.get("walking_distance", 0)),
+            "cost": transit_fee,
+            "segments": seg_info,
+            "polyline": full_path,
+        }
+        if not full_path:
+            logger.warning(
+                "高德公交规划返回方案但 polyline 为空: city=%s segments=%s",
+                city,
+                len(best.get("segments") or []),
+            )
+            return None
+        logger.info(
+            "高德公交规划成功: city=%s polyline点数=%s duration=%s",
+            city,
+            len(full_path),
+            out["duration"],
+        )
+        return out
     except Exception as exc:
-        logger.debug("高德公交路线规划失败: %s", exc)
+        logger.warning("高德公交路线规划异常: %s", exc)
     return None
 
 
@@ -224,6 +285,7 @@ async def _get_amap_walking_route(
 ) -> Optional[Dict[str, Any]]:
     """调用高德步行路线规划 API，作为公交路线的兜底方案。"""
     if not settings.amap_web_service_key:
+        logger.warning("高德步行规划跳过: 未配置 AMAP_WEB_SERVICE_KEY")
         return None
     params = {
         "key": settings.amap_web_service_key,
@@ -238,22 +300,35 @@ async def _get_amap_walking_route(
             )
             resp.raise_for_status()
             data = resp.json()
-        if data.get("status") == "1":
-            paths = (data.get("route") or {}).get("paths") or []
-            if paths:
-                best = paths[0]
-                full_path: List[Dict[str, float]] = []
-                for step in best.get("steps") or []:
-                    full_path.extend(_decode_amap_polyline(step.get("polyline", "")))
-                return {
-                    "duration": int(best.get("duration", 0)),
-                    "walking_distance": int(best.get("distance", 0)),
-                    "cost": 0.0,
-                    "segments": [{"type": "步行", "name": "步行路线"}],
-                    "polyline": full_path,
-                }
+        if data.get("status") != "1":
+            logger.warning(
+                "高德步行规划 API 非成功: status=%s infocode=%s info=%s",
+                data.get("status"),
+                data.get("infocode"),
+                data.get("info"),
+            )
+            return None
+        paths = (data.get("route") or {}).get("paths") or []
+        if not paths:
+            logger.warning("高德步行规划无 paths")
+            return None
+        best = paths[0]
+        full_path: List[Dict[str, float]] = []
+        for step in best.get("steps") or []:
+            full_path.extend(_decode_amap_polyline(step.get("polyline", "")))
+        if not full_path:
+            logger.warning("高德步行规划返回但 polyline 为空")
+            return None
+        logger.info("高德步行规划成功: polyline点数=%s", len(full_path))
+        return {
+            "duration": int(best.get("duration", 0)),
+            "walking_distance": int(best.get("distance", 0)),
+            "cost": 0.0,
+            "segments": [{"type": "步行", "name": "步行路线"}],
+            "polyline": full_path,
+        }
     except Exception as exc:
-        logger.debug("高德步行路线规划失败: %s", exc)
+        logger.warning("高德步行路线规划异常: %s", exc)
     return None
 
 
@@ -329,13 +404,128 @@ async def geocode_name(name: str, city: str) -> Dict[str, float]:
 # 行程地点增强（供 /v1/trips/locations 端点使用）
 # ---------------------------------------------------------------------------
 
-async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
+
+def _normalize_entity_id(raw: Any) -> str:
+    """PG 主键多为 TEXT；Mongo/JSON 可能为 int 或 '123.0'，统一为稳定字符串。"""
+    if raw is None or isinstance(raw, bool):
+        return ""
+    if isinstance(raw, int):
+        return str(raw)
+    if isinstance(raw, float):
+        if raw == int(raw):
+            return str(int(raw))
+        return str(raw).strip()
+    s = str(raw).strip()
+    if not s:
+        return ""
+    try:
+        f = float(s)
+        if f == int(f) and ("." in s or "e" in s.lower()):
+            return str(int(f))
+    except ValueError:
+        pass
+    return s
+
+
+def _normalized_text(value: Any) -> str:
+    """将 None/None 字符串等统一视为缺失文本。"""
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    if s.lower() in _PLACEHOLDER_NULL_TEXT:
+        return ""
+    return s
+
+
+def _is_placeholder_title(title: str, from_kind: str, entity_id: str) -> bool:
+    """识别前端/兜底占位标题，命中 PG 后应被真实名称覆盖。"""
+    t = _normalized_text(title)
+    if not t or t in {"地点", "未知地点", "—"}:
+        return True
+    if entity_id:
+        expected = {
+            "restaurant": f"餐厅（{entity_id}）",
+            "hotel": f"酒店（{entity_id}）",
+            "recommendation": f"景点（{entity_id}）",
+        }.get(from_kind)
+        if expected and t == expected:
+            return True
+    if from_kind == "restaurant" and re.fullmatch(r"餐厅（.+）", t):
+        return True
+    if from_kind == "hotel" and re.fullmatch(r"酒店（.+）", t):
+        return True
+    if from_kind == "recommendation" and re.fullmatch(r"景点（.+）", t):
+        return True
+    return False
+
+
+def _resolve_from_kind_and_id(act: Dict[str, Any]) -> tuple[str, str]:
+    """解析活动的 from + id；兼容仍带 type/ref 的文档（增强接口侧）。"""
+    fk = str(act.get("from", "")).strip()
+    eid_s = _normalize_entity_id(act.get("id"))
+
+    ref = act.get("ref") if isinstance(act.get("ref"), dict) else {}
+    if isinstance(ref, dict):
+        if not eid_s and ref.get("restaurantId"):
+            eid_s = _normalize_entity_id(ref.get("restaurantId"))
+            if fk not in ("recommendation", "restaurant", "hotel", "others"):
+                fk = "restaurant"
+        elif not eid_s and ref.get("attractionId"):
+            eid_s = _normalize_entity_id(ref.get("attractionId"))
+            if fk not in ("recommendation", "restaurant", "hotel", "others"):
+                fk = "recommendation"
+        elif not eid_s and ref.get("hotelId"):
+            eid_s = _normalize_entity_id(ref.get("hotelId"))
+            if fk not in ("recommendation", "restaurant", "hotel", "others"):
+                fk = "hotel"
+
+    if fk not in ("recommendation", "restaurant", "hotel", "others"):
+        typ = str(act.get("type", ""))
+        tl = typ.lower()
+        if tl in ("recommendation", "restaurant", "hotel", "others"):
+            fk = tl
+        elif "餐厅" in typ or "美食" in typ or typ in ("咖啡厅", "茶馆", "小吃"):
+            fk = "restaurant"
+        elif "酒店" in typ or "住宿" in typ:
+            fk = "hotel"
+        elif typ and typ != "其他":
+            fk = "recommendation"
+        else:
+            fk = "others"
+
+    return fk, eid_s
+
+
+async def enhance_trip_locations(
+    trip: Dict[str, Any],
+    provided_segments: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+) -> Dict[str, Any]:
     """为行程中每个活动补充坐标，并在相邻有坐标活动间规划公交路线。
 
+    当 provided_segments 不为空时，直接将对应天的路线注入 transitSegments，
+    跳过高德 API 调用（适用于 GET 时读取生成后缓存的路线数据）。
+
     查询策略：
-    1. 若活动含 ref.attractionId / ref.hotelId，优先用 PG 主键解析精确坐标
-    2. 否则按 title/location 地理编码（景点/酒店向量表 → 高德 → 兜底）
+    1. 活动 `from` + `id` → PG fetch_*_by_id
+    2. `others` 或无坐标 → title/location 地理编码
     """
+    has_web_key = bool((settings.amap_web_service_key or "").strip())
+    prov_keys = list((provided_segments or {}).keys()) if provided_segments else []
+    logger.info(
+        "enhance_trip_locations 开始: destination=%s days=%s has_amap_web_key=%s provided_segment_day_keys=%s",
+        trip.get("destination"),
+        len(trip.get("days") or []),
+        has_web_key,
+        prov_keys,
+    )
+    if not has_web_key and not (provided_segments and any(provided_segments.values())):
+        logger.warning(
+            "enhance_trip_locations: 未配置 AMAP_WEB_SERVICE_KEY，且未传入可用 routeSegments；"
+            "将无法生成 transitSegments（Node finalize 也不会写入 Mongo routeSegments）"
+        )
+
     destination = str(trip.get("destination", ""))
     days: List[Dict[str, Any]] = trip.get("days", []) or []
 
@@ -350,34 +540,29 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
         # ---- 步骤 1: 批量查坐标 ----
         activity_coords: List[Optional[Dict[str, float]]] = []
         for act in activities:
-            title = str(act.get("title", "")).strip()
-            location = str(act.get("location", "")).strip()
-            ref = act.get("ref") if isinstance(act.get("ref"), dict) else {}
-            aid = ref.get("attractionId") if isinstance(ref, dict) else None
-            hid = ref.get("hotelId") if isinstance(ref, dict) else None
-            rid = ref.get("restaurantId") if isinstance(ref, dict) else None
+            title = _normalized_text(act.get("title"))
+            location = _normalized_text(act.get("location"))
+            from_kind, eid_s = _resolve_from_kind_and_id(act)
 
             coord: Optional[Dict[str, float]] = None
             row: Optional[Dict[str, Any]] = None
-            if aid:
-                row = await pg_vector_store.fetch_attraction_by_id(str(aid))
+            if from_kind == "recommendation" and eid_s:
+                row = await pg_vector_store.fetch_attraction_by_id(eid_s)
                 if row and row.get("latitude") is not None and row.get("longitude") is not None:
                     coord = {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
-            elif hid:
-                row = await pg_vector_store.fetch_hotel_by_id(str(hid))
+            elif from_kind == "hotel" and eid_s:
+                row = await pg_vector_store.fetch_hotel_by_id(eid_s)
                 if row and row.get("latitude") is not None and row.get("longitude") is not None:
                     coord = {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
-            elif rid:
-                row = await pg_vector_store.fetch_restaurant_by_id(str(rid))
+            elif from_kind == "restaurant" and eid_s:
+                row = await pg_vector_store.fetch_restaurant_by_id(eid_s)
                 if row and row.get("latitude") is not None and row.get("longitude") is not None:
                     coord = {"lat": float(row["latitude"]), "lng": float(row["longitude"])}
 
             if coord is None:
-                t = str(act.get("type", ""))
-                tl = t.lower()
-                if hid or tl == "hotel" or "酒店" in t:
+                if from_kind == "hotel":
                     entity: Literal["attraction", "hotel", "restaurant"] = "hotel"
-                elif rid or tl == "restaurant" or t in ("餐厅", "咖啡厅", "茶馆", "小吃", "美食"):
+                elif from_kind == "restaurant":
                     entity = "restaurant"
                 else:
                     entity = "attraction"
@@ -385,21 +570,37 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
 
             activity_coords.append(coord)
 
-            enriched = {**act, "coordinate": coord}
-            # ref 活动：Mongo 不存文案，此处从 PG 补展示字段（仅响应层，不写回 Mongo）
-            if row and (aid or hid or rid):
-                if not enriched.get("title") and row.get("name"):
+            enriched = {**act, "from": from_kind, "coordinate": coord}
+            if eid_s:
+                enriched["id"] = eid_s
+            if row and eid_s and from_kind in ("recommendation", "hotel", "restaurant"):
+                if _is_placeholder_title(str(enriched.get("title") or ""), from_kind, eid_s) and row.get("name"):
                     enriched["title"] = str(row["name"])
                 desc = row.get("description")
-                if not enriched.get("description") and desc is not None:
+                if not _normalized_text(enriched.get("description")) and desc is not None:
                     enriched["description"] = str(desc)
                 loc_pg = row.get("location")
-                if not enriched.get("location") and loc_pg:
+                if not _normalized_text(enriched.get("location")) and loc_pg:
                     enriched["location"] = str(loc_pg)
-                loc_name = str(enriched.get("location") or enriched.get("title") or destination)
+                loc_name = (
+                    _normalized_text(enriched.get("location"))
+                    or _normalized_text(enriched.get("title"))
+                    or destination
+                )
             else:
                 loc_name = location or title or destination
             enriched["location"] = loc_name
+
+            # PG 未命中但有主键时，避免前端标题退化为「地点」
+            if (
+                eid_s
+                and from_kind in ("recommendation", "restaurant", "hotel")
+                and not _normalized_text(enriched.get("title"))
+            ):
+                label = {"restaurant": "餐厅", "hotel": "酒店", "recommendation": "景点"}.get(
+                    from_kind, "地点"
+                )
+                enriched["title"] = f"{label}（{eid_s}）"
 
             enhanced_activities.append(enriched)
 
@@ -408,39 +609,121 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
                 all_locations.append({"name": loc_name, "coordinate": coord})
 
         # ---- 步骤 2: 相邻活动间公交路线规划 ----
+        day_key = str(day.get("day", ""))
+        cached_segs = (provided_segments or {}).get(day_key)
+        # 兼容 day 为数字时前端传 "1" 与缓存键不一致
+        if cached_segs is None and day.get("day") is not None:
+            alt_key = str(int(day["day"])) if isinstance(day["day"], (int, float)) and day["day"] == int(day["day"]) else None
+            if alt_key and alt_key != day_key:
+                cached_segs = (provided_segments or {}).get(alt_key)
+
         transit_segments: List[Dict[str, Any]] = []
         indexed_with_coord = [
             (i, act, coord)
             for i, (act, coord) in enumerate(zip(enhanced_activities, activity_coords))
             if coord is not None
         ]
-        for j in range(len(indexed_with_coord) - 1):
-            i_from, act_from, coord_from = indexed_with_coord[j]
-            i_to, act_to, coord_to = indexed_with_coord[j + 1]
-            route = await _get_amap_transit_route(coord_from, coord_to, destination)
-            # 公交路线无结果或无 polyline 时降级到步行路线
-            if not route or not route.get("polyline"):
-                route = await _get_amap_walking_route(coord_from, coord_to)
-            if route:
-                transit_segments.append(
-                    {
-                        "fromTitle": act_from.get("title", ""),
-                        "toTitle": act_to.get("title", ""),
-                        "fromIndex": i_from,
-                        "toIndex": i_to,
-                        "route": route,
-                    }
-                )
+
+        if cached_segs:
+            # 直接使用缓存路线，不调用高德 API
+            transit_segments = list(cached_segs)
+            logger.info(
+                "day=%s 使用缓存 routeSegments: day_key=%s 段数=%s",
+                day.get("day"),
+                day_key,
+                len(transit_segments),
+            )
+        else:
+            leg_count = max(0, len(indexed_with_coord) - 1)
+            logger.info(
+                "day=%s 规划路线: day_key=%s 有坐标活动数=%s 相邻段数=%s city=%s",
+                day.get("day"),
+                day_key,
+                len(indexed_with_coord),
+                leg_count,
+                destination,
+            )
+            for j in range(len(indexed_with_coord) - 1):
+                i_from, act_from, coord_from = indexed_with_coord[j]
+                i_to, act_to, coord_to = indexed_with_coord[j + 1]
+                route = await _get_amap_transit_route(coord_from, coord_to, destination)
+                src = "transit"
+                # 公交路线无结果或无 polyline 时降级到步行路线
+                if not route or not route.get("polyline"):
+                    route = await _get_amap_walking_route(coord_from, coord_to)
+                    src = "walking"
+                if route and route.get("polyline"):
+                    plen = len(route["polyline"])
+                    transit_segments.append(
+                        {
+                            "fromTitle": act_from.get("title", ""),
+                            "toTitle": act_to.get("title", ""),
+                            "fromIndex": i_from,
+                            "toIndex": i_to,
+                            "route": route,
+                        }
+                    )
+                    logger.info(
+                        "day=%s 段 %s→%s: %s 成功 polyline点数=%s",
+                        day.get("day"),
+                        i_from,
+                        i_to,
+                        src,
+                        plen,
+                    )
+                else:
+                    logger.warning(
+                        "day=%s 段 %s→%s: 公交与步行均无有效 polyline，不写入该段",
+                        day.get("day"),
+                        i_from,
+                        i_to,
+                    )
 
         day_out: Dict[str, Any] = {**day, "activities": enhanced_activities}
         if transit_segments:
             day_out["transitSegments"] = transit_segments
+        else:
+            logger.warning(
+                "day=%s 无 transitSegments（缓存为空且实时规划未得到任何折线）",
+                day.get("day"),
+            )
         enhanced_days.append(day_out)
 
-    return _json_safe(
-        {
-            "destination": destination,
-            "days": enhanced_days,
-            "allLocations": all_locations,
-        }
+    out: Dict[str, Any] = {
+        "destination": destination,
+        "days": enhanced_days,
+        "allLocations": all_locations,
+    }
+    if trip.get("hotelNightlyCost") is not None:
+        out["hotelNightlyCost"] = trip.get("hotelNightlyCost")
+    if trip.get("hotelTotalCost") is not None:
+        out["hotelTotalCost"] = trip.get("hotelTotalCost")
+    hid = str(trip.get("selectedHotelId") or "").strip()
+    if hid:
+        hrow = await pg_vector_store.fetch_hotel_by_id(hid)
+        if hrow:
+            nightly = trip.get("hotelNightlyCost")
+            if nightly is None and hrow.get("price_yuan") is not None:
+                try:
+                    nightly = int(float(hrow["price_yuan"]))
+                except (TypeError, ValueError):
+                    nightly = None
+            out["selectedHotel"] = _json_safe(
+                {
+                    "hotelId": hid,
+                    "name": hrow.get("name"),
+                    "cost": nightly,
+                    "rating": float(hrow["rating"]) if hrow.get("rating") is not None else None,
+                    "priceDisplay": hrow.get("price_display"),
+                    "address": hrow.get("address"),
+                    "positionDesc": hrow.get("position_desc"),
+                    "imageUrl": hrow.get("image_url"),
+                }
+            )
+    days_with_routes = sum(1 for d in enhanced_days if d.get("transitSegments"))
+    logger.info(
+        "enhance_trip_locations 结束: 总天数=%s 含transitSegments的天数=%s",
+        len(enhanced_days),
+        days_with_routes,
     )
+    return _json_safe(out)

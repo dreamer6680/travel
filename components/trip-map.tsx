@@ -3,6 +3,52 @@
 import { useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 
+/**
+ * 日志开关：`NEXT_PUBLIC_TRIP_MAP_DEBUG=0` 强制关闭；
+ * `=1` 或开发环境默认开启；生产环境仅 `=1` 时打印。
+ */
+function tripMapLog(step: string, detail?: Record<string, unknown>) {
+  if (process.env.NEXT_PUBLIC_TRIP_MAP_DEBUG === "0") return
+  const enabled =
+    process.env.NEXT_PUBLIC_TRIP_MAP_DEBUG === "1" ||
+    process.env.NODE_ENV === "development"
+  if (!enabled) return
+  if (detail !== undefined) {
+    console.log(`[TripMap] ${step}`, detail)
+  } else {
+    console.log(`[TripMap] ${step}`)
+  }
+}
+
+/** 与 init 一致：在调用路径规划类服务前再写一次，避免 StrictMode / 热更新后丢失 */
+function applyAmapSecurityJsCode(): boolean {
+  const sec = process.env.NEXT_PUBLIC_AMAP_SECURITY_JS_CODE
+  if (!sec || typeof window === "undefined") return false
+  ;(window as unknown as { _AMapSecurityConfig?: { securityJsCode: string } })._AMapSecurityConfig = {
+    securityJsCode: sec,
+  }
+  return true
+}
+
+/** 从 AMap 服务回调 result 上尽量抠出可读错误信息（不同插件字段名不一致） */
+function summarizeAmapServiceResult(result: unknown): Record<string, unknown> {
+  if (!result || typeof result !== "object") {
+    return { raw: String(result) }
+  }
+  const r = result as Record<string, unknown>
+  const out: Record<string, unknown> = { keys: Object.keys(r).slice(0, 30) }
+  for (const k of ["info", "errmsg", "errMsg", "message", "state", "status", "infocode", "result"]) {
+    if (r[k] !== undefined) {
+      const v = r[k]
+      out[k] =
+        typeof v === "object" && v !== null
+          ? JSON.stringify(v).slice(0, 400)
+          : String(v).slice(0, 400)
+    }
+  }
+  return out
+}
+
 export interface Coordinate {
   lat: number
   lng: number
@@ -27,6 +73,123 @@ interface Polyline {
   strokeOpacity?: number
   strokeStyle?: "solid" | "dashed"
 }
+
+/** 公交换乘方案 polyline：字符串 "lng,lat;..." 或点数组 → { lat, lng }[] */
+function normalizeTransferPathInput(p: unknown): Coordinate[] {
+  const out: Coordinate[] = []
+  if (p == null) return out
+  if (typeof p === "string") {
+    for (const s of p.split(";")) {
+      const a = s.split(",")
+      if (a.length < 2) continue
+      const lng = Number(a[0])
+      const lat = Number(a[1])
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue
+      out.push({ lng, lat })
+    }
+    return out
+  }
+  if (!Array.isArray(p)) return out
+  for (const item of p) {
+    if (!item) continue
+    if (typeof (item as any).lng === "number" && typeof (item as any).lat === "number") {
+      out.push({ lng: (item as any).lng, lat: (item as any).lat })
+    } else if (typeof (item as any).getLng === "function" && typeof (item as any).getLat === "function") {
+      out.push({ lng: (item as any).getLng(), lat: (item as any).getLat() })
+    } else if (Array.isArray(item) && item.length >= 2) {
+      const lng = Number(item[0])
+      const lat = Number(item[1])
+      if (Number.isFinite(lng) && Number.isFinite(lat)) out.push({ lng, lat })
+    }
+  }
+  return out
+}
+
+/** 从 AMap LngLat 对象或普通坐标对象中提取单个坐标 */
+function extractSingleCoord(loc: unknown): Coordinate | null {
+  if (!loc || typeof loc !== "object") return null
+  const l = loc as any
+  if (typeof l.getLng === "function" && typeof l.getLat === "function") {
+    return { lng: l.getLng(), lat: l.getLat() }
+  }
+  if (typeof l.lng === "number" && typeof l.lat === "number") {
+    return { lng: l.lng, lat: l.lat }
+  }
+  return null
+}
+
+/**
+ * AMap.Transfer 返回的 plan → 单段完整路径（与 1.html flattenPlanToPath 一致）
+ *
+ * AMap JS SDK 的 Transfer plan 结构：
+ *   plan.segments[i]
+ *     - transit_mode: "WALK" | "BUS" | "SUBWAY" | ...
+ *     - walking: { steps: [{ path: LngLat[] }], path?: LngLat[] }   ← 步行段
+ *     - transit: {
+ *         lines: [{ path?: LngLat[] }],
+ *         on_station:  { location: LngLat },
+ *         off_station: { location: LngLat },
+ *       }                                                             ← 公交/地铁段
+ *
+ * 注意：公交/地铁段 line.path 在 JS SDK 里通常为空，
+ *       所以用 on_station/off_station 坐标作为途经点兜底，
+ *       能让折线沿途经站而非直接连端点。
+ */
+function flattenTransferPlanToCoords(plan: any): Coordinate[] {
+  const coords: Coordinate[] = []
+  if (!plan) return coords
+
+  // 顶层 path（部分版本直接有）
+  if (plan.path) {
+    const whole = normalizeTransferPathInput(plan.path)
+    if (whole.length >= 2) return whole
+  }
+
+  const segments = plan.segments
+  if (!Array.isArray(segments) || !segments.length) return coords
+
+  for (const seg of segments) {
+    // ── 步行段路径（walking 与 transit 互不依赖，独立提取）────────────────
+    const walking = seg?.walking
+    if (walking) {
+      // 部分版本直接有 walking.path
+      if (walking.path) coords.push(...normalizeTransferPathInput(walking.path))
+      // 更常见：walking.steps[i].path
+      if (Array.isArray(walking.steps)) {
+        for (const step of walking.steps) {
+          if (step?.path) coords.push(...normalizeTransferPathInput(step.path))
+        }
+      }
+    }
+
+    // ── 公交 / 地铁段路径 ───────────────────────────────────────────────
+    const t = seg?.transit
+    if (!t) continue  // 纯步行段已在上方处理，跳过
+
+    // line.path（JS SDK 里通常为空，但有就取）
+    if (t.path) coords.push(...normalizeTransferPathInput(t.path))
+    if (Array.isArray(t.lines)) {
+      for (const line of t.lines) {
+        if (line?.path) coords.push(...normalizeTransferPathInput(line.path))
+      }
+    }
+    if (Array.isArray(t.steps)) {
+      for (const step of t.steps) {
+        if (step?.path) coords.push(...normalizeTransferPathInput(step.path))
+      }
+    }
+
+    // 兜底：用上/下车站坐标作为途经点，避免直线穿越
+    const onCoord = extractSingleCoord(t.on_station?.location)
+    const offCoord = extractSingleCoord(t.off_station?.location)
+    if (onCoord) coords.push(onCoord)
+    if (offCoord) coords.push(offCoord)
+  }
+
+  return coords
+}
+
+const TRANSIT_LEG_COLORS = ["#1677ff", "#13c2c2", "#722ed1", "#fa8c16", "#52c41a"]
 
 /** 驾车/步行规划结果 → 折线点（GCJ02） */
 function extractPathFromRoute(route: any): Coordinate[] {
@@ -71,6 +234,13 @@ interface TripMapProps {
   drivingRoutePoints?: Coordinate[]
   /** 驾车路线描边色（与当天主题色一致） */
   routeStrokeColor?: string
+  /**
+   * 与 `transitCity` 同时传入且点数≥2 时：按相邻点**分段**调用 `AMap.Transfer`（公交/地铁/步行），
+   * 与 `1.html` 一致；优先级高于 `drivingRoutePoints`。规划完成前仍展示 `polylines` 作为占位。
+   */
+  transitStops?: Coordinate[]
+  /** 公交换乘规划城市名，如「上海」 */
+  transitCity?: string
 }
 
 declare global {
@@ -79,8 +249,12 @@ declare global {
   }
 }
 
-/** 活动类型 → emoji 图标 */
+/** 活动类型 → emoji 图标（from 字段 + 中文兼容） */
 const TYPE_EMOJI: Record<string, string> = {
+  recommendation: "🏛️",
+  restaurant: "🍜",
+  hotel: "🏨",
+  others: "📍",
   餐厅: "🍜",
   咖啡厅: "☕",
   景点: "🏛️",
@@ -185,9 +359,12 @@ export function TripMap({
   activeIndex = null,
   drivingRoutePoints,
   routeStrokeColor = "#1677ff",
+  transitStops,
+  transitCity,
 }: TripMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
+  const AMapRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
   const polylinesRef = useRef<any[]>([])
   const infoWindowRef = useRef<any>(null)
@@ -200,6 +377,9 @@ export function TripMap({
   /** 多点 AMap.Driving 一条线（起点→途经→终点） */
   const [drivingPathResult, setDrivingPathResult] = useState<Coordinate[] | null>(null)
   const drivingPathGen = useRef(0)
+  /** 分段公交换乘（每相邻两点一条线），优先于驾车线 */
+  const [transitLegPolylines, setTransitLegPolylines] = useState<Polyline[] | null>(null)
+  const transitLegGen = useRef(0)
 
   // 初始化地图（只执行一次）
   useEffect(() => {
@@ -208,18 +388,14 @@ export function TripMap({
 
     const loadMap = async () => {
       try {
+        tripMapLog("init: 开始加载地图 SDK", { center: { lat: center.lat, lng: center.lng }, zoom })
         setIsLoading(true)
         setError(null)
 
         const apiKey = process.env.NEXT_PUBLIC_AMAP_KEY
         if (!apiKey) throw new Error("NEXT_PUBLIC_AMAP_KEY 未配置")
 
-        const sec = process.env.NEXT_PUBLIC_AMAP_SECURITY_JS_CODE
-        if (sec && typeof window !== "undefined") {
-          ;(window as unknown as { _AMapSecurityConfig?: { securityJsCode: string } })._AMapSecurityConfig = {
-            securityJsCode: sec,
-          }
-        }
+        applyAmapSecurityJsCode()
 
         const AMapLoader = (await import("@amap/amap-jsapi-loader")).default
         const AMap = await AMapLoader.load({
@@ -231,6 +407,7 @@ export function TripMap({
             "AMap.Polyline",
             "AMap.Driving",
             "AMap.Walking",
+            "AMap.Transfer",
           ],
         })
 
@@ -241,6 +418,7 @@ export function TripMap({
           mapStyle: "amap://styles/normal",
         })
         mapInstanceRef.current = map
+        AMapRef.current = AMap
 
         // 共享信息窗口
         infoWindowRef.current = new AMap.InfoWindow({
@@ -250,11 +428,16 @@ export function TripMap({
         })
 
         setIsLoading(false)
+        tripMapLog("init: 地图创建完成", {
+          isLoading: false,
+          securityJsCodeConfigured: !!process.env.NEXT_PUBLIC_AMAP_SECURITY_JS_CODE,
+        })
       } catch (err: any) {
         let msg = "地图加载失败"
         if (err?.message?.includes("USERKEY_PLAT")) msg = "API Key 平台类型不匹配（需要 Web JS API 类型）"
         else if (err?.message?.includes("INVALID")) msg = "API Key 无效"
         else if (err?.message?.includes("NEXT_PUBLIC_AMAP_KEY")) msg = "API Key 未配置"
+        tripMapLog("init: 失败", { message: msg, raw: String(err?.message ?? err) })
         setError(msg)
         setIsLoading(false)
       }
@@ -262,9 +445,11 @@ export function TripMap({
 
     loadMap()
     return () => {
+      tripMapLog("init: 卸载地图")
       if (mapInstanceRef.current) {
         mapInstanceRef.current.destroy()
         mapInstanceRef.current = null
+        AMapRef.current = null
         isInitialized.current = false
       }
     }
@@ -272,20 +457,199 @@ export function TripMap({
 
   // 同步 props → 先展示直线，再异步替换为驾车/步行真实路径
   useEffect(() => {
+    tripMapLog("polylines props 变化，清空 resolvedPolylines", {
+      polylinesCount: polylines.length,
+      firstPathLen: polylines[0]?.path?.length,
+    })
     setResolvedPolylines(null)
   }, [polylines])
 
+  // 分段公交换乘：相邻活动点之间各调一次 AMap.Transfer（参考 1.html）
+  useEffect(() => {
+    const city = (transitCity || "").trim()
+    const stops = transitStops
+    if (!stops || stops.length < 2 || !city || isLoading) {
+      tripMapLog("Transfer effect: 跳过", {
+        reason: !stops
+          ? "无 transitStops"
+          : stops.length < 2
+            ? "点数<2"
+            : !city
+              ? "无 transitCity"
+              : "isLoading=true",
+        stopsLen: stops?.length ?? 0,
+        city: city || "(空)",
+        isLoading,
+      })
+      setTransitLegPolylines(null)
+      return
+    }
+    const AMap = AMapRef.current || window.AMap
+    if (!AMap) {
+      tripMapLog("Transfer effect: 跳过 — AMap 未就绪")
+      return
+    }
+
+    const gen = ++transitLegGen.current
+    const securityApplied = applyAmapSecurityJsCode()
+    tripMapLog("Transfer effect: 开始分段规划", {
+      gen,
+      city,
+      legCount: stops.length - 1,
+      stopsPreview: stops.slice(0, 4).map((p) => ({ lat: p.lat, lng: p.lng })),
+      securityJsCodeConfigured: securityApplied,
+    })
+    if (!securityApplied) {
+      tripMapLog(
+        "Transfer effect: 警告 — 未配置 NEXT_PUBLIC_AMAP_SECURITY_JS_CODE，Transfer 通常会返回 status=error；请与 1.html 中 _AMapSecurityConfig 一致配置",
+      )
+    }
+    setTransitLegPolylines(null)
+
+    const built: Polyline[] = []
+    const legOutcomes: Array<{
+      legIndex: number
+      status: string
+      pathCoordCount: number
+      usedFallback: boolean
+    }> = []
+
+    AMap.plugin(["AMap.Transfer"], () => {
+      if (gen !== transitLegGen.current) {
+        tripMapLog("Transfer: plugin 回调已过期，忽略", { gen, current: transitLegGen.current })
+        return
+      }
+
+      applyAmapSecurityJsCode()
+
+      const policy =
+        AMap.TransferPolicy && AMap.TransferPolicy.LEAST_TIME !== undefined
+          ? AMap.TransferPolicy.LEAST_TIME
+          : 0
+
+      const transfer = new AMap.Transfer({
+        map: null,
+        city,
+        hideMarkers: true,
+        policy,
+      })
+
+      const runLeg = (index: number) => {
+        if (gen !== transitLegGen.current) return
+        if (index >= stops.length - 1) {
+          const anyRealPath = legOutcomes.some(
+            (o) => o.status === "complete" && o.pathCoordCount >= 2,
+          )
+          tripMapLog("Transfer: 全部分段完成", {
+            gen,
+            builtLegs: built.length,
+            eachPointCount: built.map((b) => b.path.length),
+            legOutcomes,
+            anyRealPath,
+          })
+          if (built.length > 0 && !anyRealPath) {
+            tripMapLog(
+              "Transfer: 所有分段均未拿到有效路径（多为 Key 未配安全密钥或服务未开通），放弃 transitLegs，回退父组件 polylines",
+              {
+                legOutcomes,
+                hint: "配置 NEXT_PUBLIC_AMAP_SECURITY_JS_CODE；控制台 Key 勾选「Web端(JS API)」并开通路径规划/公交换乘",
+              },
+            )
+            setTransitLegPolylines(null)
+            return
+          }
+          if (built.length > 0) {
+            setTransitLegPolylines(built.map((p) => ({ ...p, path: [...p.path] })))
+          }
+          return
+        }
+
+        const start = stops[index]
+        const end = stops[index + 1]
+        const fallbackPath = [start, end]
+        const color = TRANSIT_LEG_COLORS[index % TRANSIT_LEG_COLORS.length]
+
+        tripMapLog(`Transfer: 请求第 ${index + 1}/${stops.length - 1} 段`, {
+          from: { lat: start.lat, lng: start.lng },
+          to: { lat: end.lat, lng: end.lng },
+          color,
+        })
+
+        transfer.search(
+          new AMap.LngLat(start.lng, start.lat),
+          new AMap.LngLat(end.lng, end.lat),
+          (status: string, result: any) => {
+            if (gen !== transitLegGen.current) {
+              tripMapLog(`Transfer: 第${index + 1}段回调已过期`, { gen, current: transitLegGen.current })
+              return
+            }
+            const plan =
+              status === "complete" && result?.plans?.[0] ? result.plans[0] : null
+            const pathCoords = flattenTransferPlanToCoords(plan)
+            const usedFallback = pathCoords.length < 2
+
+            legOutcomes.push({
+              legIndex: index + 1,
+              status,
+              pathCoordCount: pathCoords.length,
+              usedFallback,
+            })
+
+            tripMapLog(`Transfer: 第${index + 1}段 回调`, {
+              status,
+              hasPlans: !!result?.plans?.length,
+              segmentCount: plan?.segments?.length ?? 0,
+              pathCoordCount: pathCoords.length,
+              usedFallback,
+              resultSummary: summarizeAmapServiceResult(result),
+            })
+            if (status !== "complete") {
+              tripMapLog(`Transfer: 第${index + 1}段 失败详情`, summarizeAmapServiceResult(result))
+            }
+
+            const path = pathCoords.length >= 2 ? pathCoords : fallbackPath
+            built.push({
+              path,
+              strokeColor: color,
+              strokeWeight: pathCoords.length >= 2 ? 6 : 3,
+              strokeOpacity: 0.9,
+              strokeStyle: "solid",
+            })
+            runLeg(index + 1)
+          },
+        )
+      }
+
+      runLeg(0)
+    })
+  }, [transitStops, transitCity, isLoading])
+
   // 多点一条驾车线（与高德示例：起点、终点、waypoints 途经点）
   useEffect(() => {
+    const useTransit = !!(transitStops && transitStops.length >= 2 && (transitCity || "").trim())
+    if (useTransit) {
+      tripMapLog("Driving effect: 跳过（已启用 Transit）")
+      setDrivingPathResult(null)
+      return
+    }
     if (!drivingRoutePoints || drivingRoutePoints.length < 2 || isLoading) {
+      tripMapLog("Driving effect: 跳过", {
+        hasPoints: !!drivingRoutePoints && drivingRoutePoints.length >= 2,
+        pointCount: drivingRoutePoints?.length ?? 0,
+        isLoading,
+      })
       setDrivingPathResult(null)
       return
     }
     const map = mapInstanceRef.current
-    const AMap = window.AMap
-    if (!map || !AMap) return
+    const AMap = AMapRef.current || window.AMap
+    if (!map || !AMap) {
+      tripMapLog("Driving effect: 跳过 — map 或 AMap 未就绪")
+      return
+    }
 
     const gen = ++drivingPathGen.current
+    tripMapLog("Driving effect: 开始整条驾车规划", { gen, pointCount: drivingRoutePoints.length })
     const pts = drivingRoutePoints
     const origin = pts[0]
     const dest = pts[pts.length - 1]
@@ -301,11 +665,13 @@ export function TripMap({
       const onSearchDone = (status: string, result: any) => {
         if (gen !== drivingPathGen.current) return
         if (status !== "complete") {
+          tripMapLog("Driving: 回调失败", { status, gen })
           setDrivingPathResult(null)
           return
         }
         const dr = result?.routes?.[0] ?? result?.route
         const path = extractPathFromRoute(dr)
+        tripMapLog("Driving: 回调成功", { pathPointCount: path.length, gen })
         setDrivingPathResult(path.length >= 2 ? path : null)
       }
 
@@ -327,15 +693,26 @@ export function TripMap({
         )
       }
     })
-  }, [drivingRoutePoints, isLoading])
+  }, [drivingRoutePoints, isLoading, transitStops, transitCity])
 
   useEffect(() => {
     const map = mapInstanceRef.current
-    if (!map || isLoading) return
-    const AMap = window.AMap
-    if (!AMap) return
+    if (!map || isLoading) {
+      tripMapLog("RouteResolve effect: 跳过", { hasMap: !!map, isLoading })
+      return
+    }
+    const AMap = AMapRef.current || window.AMap
+    if (!AMap) {
+      tripMapLog("RouteResolve effect: 跳过 — 无 AMap")
+      return
+    }
 
-    if (drivingRoutePoints && drivingRoutePoints.length >= 2) {
+    const useTransit = !!(transitStops && transitStops.length >= 2 && (transitCity || "").trim())
+    if (useTransit || (drivingRoutePoints && drivingRoutePoints.length >= 2)) {
+      tripMapLog("RouteResolve effect: 跳过（Transit 或 Driving 已接管）", {
+        useTransit,
+        drivingPointCount: drivingRoutePoints?.length ?? 0,
+      })
       setResolvedPolylines(null)
       return
     }
@@ -345,11 +722,18 @@ export function TripMap({
       .filter(({ pl }) => pl.path.length === 2)
 
     if (needStraightSegments.length === 0) {
+      tripMapLog("RouteResolve effect: 无需处理（无两点直线段）", {
+        polylinesCount: polylines.length,
+      })
       setResolvedPolylines(null)
       return
     }
 
     const gen = ++routeResolveGen.current
+    tripMapLog("RouteResolve effect: 开始 Driving→Walking 补全直线段", {
+      gen,
+      segmentCount: needStraightSegments.length,
+    })
 
     const tryWalking = (
       start: Coordinate,
@@ -365,8 +749,10 @@ export function TripMap({
           const wr = wResult?.routes?.[0] ?? wResult?.route
           if (wStatus === "complete" && wr) {
             const path = extractPathFromRoute(wr)
+            tripMapLog("RouteResolve: Walking 回调", { wStatus, pathLen: path.length, gen })
             onDone(path.length >= 2 ? path : null)
           } else {
+            tripMapLog("RouteResolve: Walking 无路径", { wStatus, gen })
             onDone(null)
           }
         },
@@ -392,10 +778,12 @@ export function TripMap({
           if (status === "complete" && dr) {
             const path = extractPathFromRoute(dr)
             if (path.length >= 2) {
+              tripMapLog("RouteResolve: Driving 成功", { pathLen: path.length, gen })
               onDone(path)
               return
             }
           }
+          tripMapLog("RouteResolve: Driving 失败，尝试 Walking", { status, gen })
           tryWalking(start, end, onDone)
         },
       )
@@ -406,7 +794,9 @@ export function TripMap({
 
     const onSegmentDone = () => {
       pending -= 1
+      tripMapLog("RouteResolve: 一段完成", { pending, gen })
       if (pending === 0 && gen === routeResolveGen.current) {
+        tripMapLog("RouteResolve: 全部直线段补全完成", { gen })
         setResolvedPolylines(next.map((p) => ({ ...p, path: [...p.path] })))
       }
     }
@@ -428,12 +818,19 @@ export function TripMap({
         })
       })
     })
-  }, [polylines, isLoading, drivingRoutePoints])
+  }, [polylines, isLoading, drivingRoutePoints, transitStops, transitCity])
 
   const polylinesEffective = resolvedPolylines ?? polylines
 
-  const polylinesToDraw: Polyline[] =
-    drivingRoutePoints && drivingRoutePoints.length >= 2 && drivingPathResult && drivingPathResult.length >= 2
+  const useTransitLegs =
+    !!(transitStops && transitStops.length >= 2 && (transitCity || "").trim() && transitLegPolylines?.length)
+
+  const polylinesToDraw: Polyline[] = useTransitLegs
+    ? transitLegPolylines!
+    : drivingRoutePoints &&
+        drivingRoutePoints.length >= 2 &&
+        drivingPathResult &&
+        drivingPathResult.length >= 2
       ? [
           {
             path: drivingPathResult,
@@ -448,9 +845,31 @@ export function TripMap({
   // 更新标记和路线（每次 markers/polylines 变化时）
   useEffect(() => {
     const map = mapInstanceRef.current
-    if (!map || isLoading) return
-    const AMap = window.AMap
-    if (!AMap) return
+    if (!map || isLoading) {
+      tripMapLog("draw effect: 跳过", { hasMap: !!map, isLoading })
+      return
+    }
+    const AMap = AMapRef.current || window.AMap
+    if (!AMap) {
+      tripMapLog("draw effect: 跳过 — 无 AMap")
+      return
+    }
+
+    tripMapLog("draw effect: 重绘标记与折线", {
+      markerCount: markers.length,
+      polylineCount: polylinesToDraw.length,
+      drawMode: useTransitLegs
+        ? "transitLegs"
+        : drivingRoutePoints &&
+            drivingRoutePoints.length >= 2 &&
+            drivingPathResult &&
+            drivingPathResult.length >= 2
+          ? "drivingSingle"
+          : "polylinesEffective",
+      pointCounts: polylinesToDraw.map((p) => p.path.length),
+      transitLegStateCount: transitLegPolylines?.length ?? 0,
+      hasResolvedOverlay: resolvedPolylines !== null,
+    })
 
     // 清除旧内容
     markersRef.current.forEach((m) => map.remove(m))
@@ -504,6 +923,7 @@ export function TripMap({
     // 自适应缩放
     if (markers.length > 0 || polylinesToDraw.length > 0) {
       map.setFitView(null, false, [60, 60, 60, 60])
+      tripMapLog("draw effect: setFitView 已调用")
     }
   }, [markers, polylinesToDraw, isLoading])
 
@@ -511,8 +931,14 @@ export function TripMap({
   useEffect(() => {
     const map = mapInstanceRef.current
     if (!map || activeIndex == null || isLoading) return
+    const AMap = AMapRef.current || window.AMap
+    if (!AMap) return
     const marker = markers.find((m) => m.index === activeIndex)
-    if (!marker) return
+    if (!marker) {
+      tripMapLog("activeIndex: 未找到对应 marker", { activeIndex })
+      return
+    }
+    tripMapLog("activeIndex: 聚焦标记", { activeIndex, title: marker.title })
     map.setCenter([marker.position.lng, marker.position.lat], true)
     map.setZoom(15, true)
     if (infoWindowRef.current) {

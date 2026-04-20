@@ -501,7 +501,7 @@ async def writer_agent(state: AgentState) -> AgentState:
         all_restaurants=state.get("candidate_restaurants", []),
     )
 
-    _PRESERVED_ACTIVITY_FIELDS = ("ref", "priceYuan", "coordinate")
+    _PRESERVED_ACTIVITY_FIELDS = ("from", "id", "priceYuan", "coordinate")
 
     def _backup_activity_extras(days_src: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
         return [
@@ -512,7 +512,7 @@ async def writer_agent(state: AgentState) -> AgentState:
             for d in (days_src or [])
         ]
 
-    def _merge_activity_refs(
+    def _merge_activity_ids(
         days_dest: List[Dict[str, Any]], backups: List[List[Dict[str, Any]]]
     ) -> None:
         for di, day in enumerate(days_dest or []):
@@ -525,16 +525,16 @@ async def writer_agent(state: AgentState) -> AgentState:
                         if k not in act or act[k] is None:
                             act[k] = v
 
-    activity_ref_backup = _backup_activity_extras(draft.get("days", []))
+    activity_id_backup = _backup_activity_extras(draft.get("days", []))
 
-    def _strip_redundant_text_if_ref(days_src: List[Dict[str, Any]]) -> None:
-        """Mongo 侧 ref 活动只存 time/type/ref（及 priceYuan），不落 title/description/location。"""
+    def _strip_redundant_text_if_bound(days_src: List[Dict[str, Any]]) -> None:
+        """有 from+id 绑定的活动不落 title/description/location。"""
         for day in days_src or []:
-            for act in day.get("activities") or []:
-                ref = act.get("ref")
-                if not isinstance(ref, dict):
-                    continue
-                if ref.get("attractionId") or ref.get("hotelId") or ref.get("restaurantId"):
+            for act in day.get("activities", []):
+                fk = str(act.get("from", "")).strip()
+                eid = act.get("id")
+                has_id = eid is not None and str(eid).strip()
+                if fk in ("recommendation", "restaurant", "hotel") and has_id:
                     act.pop("title", None)
                     act.pop("description", None)
                     act.pop("location", None)
@@ -553,10 +553,10 @@ async def writer_agent(state: AgentState) -> AgentState:
         "- 活动描述中提及的餐厅、场所必须与该消费档次相符\n"
         "- 不要在描述中出现与预算不符的高档场所（如米其林餐厅）或过于低端的选择\n"
         "- 餐厅描述应包含大致人均消费参考\n"
-        "请基于提供的行程草稿，优化「无 ref」活动的 title 和 description，使其更加生动具体、符合旅行风格。\n"
-        "【重要】若某 activity 含 ref 且含 attractionId / hotelId / restaurantId："
-        "不要输出 title、description、location 字段，只保留 time、type、ref（及已有 priceYuan）。\n"
-        "每个 activity 的 ref 对象必须原样保留，不得删除或修改 id。\n"
+        "请基于提供的行程草稿，优化「from 为 others」或无 id 活动的 title 和 description，使其更加生动具体、符合旅行风格。\n"
+        "【重要】若某 activity 含 from 为 recommendation/restaurant/hotel 且含非空 id："
+        "不要输出 title、description、location，只保留 time、from、id（及已有 priceYuan）。\n"
+        "每个 activity 的 from 与 id 必须原样保留，不得删除或修改。\n"
         "严格保持 JSON 结构，不要添加解释文字。只输出合法的 JSON 对象。"
     )
     # 只传递需要润色的核心部分，减少 token 消耗
@@ -594,7 +594,7 @@ async def writer_agent(state: AgentState) -> AgentState:
         if isinstance(llm_result, dict):
             if isinstance(llm_result.get("days"), list) and llm_result["days"]:
                 draft["days"] = llm_result["days"]
-                _merge_activity_refs(draft["days"], activity_ref_backup)
+                _merge_activity_ids(draft["days"], activity_id_backup)
             if isinstance(llm_result.get("highlights"), list) and llm_result["highlights"]:
                 draft["highlights"] = llm_result["highlights"]
         final_trip = draft
@@ -602,9 +602,9 @@ async def writer_agent(state: AgentState) -> AgentState:
         logger.warning("writer_agent LLM 润色失败，使用草稿: %r", exc)
         final_trip = draft
 
-    _strip_redundant_text_if_ref(final_trip.get("days", []))
+    _strip_redundant_text_if_bound(final_trip.get("days", []))
 
-    # 兜底：无 ref 的活动若 description 异常，规范为字符串（有 ref 的可省略 description）
+    # 兜底：description 异常时规范为字符串
     for day in final_trip.get("days", []):
         for act in day.get("activities", []):
             desc = act.get("description")
@@ -633,9 +633,8 @@ async def budget_validator(state: AgentState) -> AgentState:
     final_trip = state.get("final_trip", {})
     total_days = len(final_trip.get("days", []))
 
-    hotel = final_trip.get("selectedHotel") or {}
-    hotel_nightly = int(hotel.get("cost", 500))
-    hotel_total = hotel_nightly * total_days
+    hotel_nightly = int(final_trip.get("hotelNightlyCost") or 500)
+    hotel_total = int(final_trip.get("hotelTotalCost") or (hotel_nightly * total_days))
 
     transport = max(int(budget * 0.15), 200)
     food = max(int(budget * 0.25), 300)
@@ -648,9 +647,8 @@ async def budget_validator(state: AgentState) -> AgentState:
         remaining_for_hotel = max(0, budget - transport - food)
         new_nightly = max(150, remaining_for_hotel // total_days)
 
-        # 更新 selectedHotel
-        if final_trip.get("selectedHotel"):
-            final_trip["selectedHotel"]["cost"] = new_nightly
+        final_trip["hotelNightlyCost"] = new_nightly
+        final_trip["hotelTotalCost"] = new_nightly * total_days
 
         # 同步更新 practicalInfo.accommodation
         prac = final_trip.get("practicalInfo", {})

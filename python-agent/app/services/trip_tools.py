@@ -111,22 +111,6 @@ def _recommendation_list_item(a: Dict[str, Any]) -> Dict[str, Any]:
     return item
 
 
-def _ref_from_entity(entity: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
-    """绑定 PG 向量表主键。"""
-    if not entity:
-        return None
-    aid = entity.get("attraction_id")
-    if aid is not None and str(aid).strip():
-        return {"attractionId": str(aid).strip()}
-    hid = entity.get("hotel_id")
-    if hid is not None and str(hid).strip():
-        return {"hotelId": str(hid).strip()}
-    rid = entity.get("restaurant_id")
-    if rid is not None and str(rid).strip():
-        return {"restaurantId": str(rid).strip()}
-    return None
-
-
 _LUNCH_TITLES = ["午餐·附近特色餐厅", "午餐·地道风味小馆", "午餐·本地人气餐厅"]
 _DINNER_TITLES = ["晚餐与夜游体验", "品尝当地风味晚餐", "夜市小吃与休闲夜游"]
 
@@ -211,7 +195,7 @@ def build_day_activities(
     day_slots: Dict[str, Any],
     destination: str,
 ) -> List[Dict[str, Any]]:
-    """按 上午景点 → 午餐 → 下午景点 → 晚餐 生成当天活动列表。"""
+    """按 上午景点 → 午餐 → 下午景点 → 晚餐 生成当天活动列表（最小活动字段）。"""
     activities: List[Dict[str, Any]] = []
     morning = day_slots.get("morning")
     afternoon = day_slots.get("afternoon")
@@ -220,118 +204,69 @@ def build_day_activities(
 
     # —— 上午景点 ——
     if morning:
-        r = _ref_from_entity(morning)
-        if r:
-            # 仅存 PG 主键 + 时段/类型，文案由查询 attractions 表补全
-            activities.append(
-                {
-                    "time": "09:00 - 11:30",
-                    "type": morning.get("type", "景点"),
-                    "ref": r,
-                }
-            )
+        aid = str(morning.get("attraction_id") or "").strip()
+        if aid:
+            activities.append({"time": "09:00 - 11:30", "from": "recommendation", "id": aid})
         else:
             activities.append(
                 {
                     "time": "09:00 - 11:30",
+                    "from": "others",
                     "title": morning["name"],
-                    "type": morning.get("type", "景点"),
-                    "description": str(morning.get("description", "")),
-                    "location": str(morning.get("location", destination)),
                 }
             )
 
     # —— 午餐 ——
-    lunch_location = str(morning.get("location", destination)) if morning else destination
     if lunch:
-        r = _ref_from_entity(lunch)
-        if r:
-            row = {
-                "time": "12:00 - 13:30",
-                "type": lunch.get("type", "餐厅"),
-                "ref": r,
-            }
-            if lunch.get("price_yuan"):
-                row["priceYuan"] = int(lunch["price_yuan"])
-            activities.append(row)
+        rid = str(lunch.get("restaurant_id") or "").strip()
+        if rid:
+            activities.append({"time": "12:00 - 13:30", "from": "restaurant", "id": rid})
         else:
-            row = {
+            activities.append(
+                {
                 "time": "12:00 - 13:30",
+                "from": "others",
                 "title": lunch["name"],
-                "type": lunch.get("type", "餐厅"),
-                "description": str(lunch.get("description", "品尝当地特色风味")),
-                "location": str(lunch.get("location", lunch_location)),
-            }
-            if lunch.get("price_yuan"):
-                row["priceYuan"] = int(lunch["price_yuan"])
-            activities.append(row)
+                }
+            )
     else:
         lunch_title = _LUNCH_TITLES[(day_num - 1) % len(_LUNCH_TITLES)]
         activities.append(
             {
                 "time": "12:00 - 13:30",
+                "from": "others",
                 "title": f"{destination}{lunch_title}",
-                "type": "餐厅",
-                "description": "就近享用午餐，品味当地特色风味小食。",
-                "location": lunch_location,
             }
         )
 
     # —— 下午景点 ——
     if afternoon:
-        r = _ref_from_entity(afternoon)
-        if r:
-            activities.append(
-                {
-                    "time": "14:00 - 17:00",
-                    "type": afternoon.get("type", "景点"),
-                    "ref": r,
-                }
-            )
+        aid = str(afternoon.get("attraction_id") or "").strip()
+        if aid:
+            activities.append({"time": "14:00 - 17:00", "from": "recommendation", "id": aid})
         else:
             activities.append(
                 {
                     "time": "14:00 - 17:00",
+                    "from": "others",
                     "title": afternoon["name"],
-                    "type": afternoon.get("type", "景点"),
-                    "description": str(afternoon.get("description", "")),
-                    "location": str(afternoon.get("location", destination)),
                 }
             )
 
     # —— 晚餐 ——
-    dinner_location = str(afternoon.get("location", destination)) if afternoon else destination
     dinner_title = _DINNER_TITLES[(day_num - 1) % len(_DINNER_TITLES)]
     if dinner:
-        r = _ref_from_entity(dinner)
-        if r:
-            row = {
-                "time": "19:00 - 21:00",
-                "type": dinner.get("type", "餐厅"),
-                "ref": r,
-            }
-            if dinner.get("price_yuan"):
-                row["priceYuan"] = int(dinner["price_yuan"])
-            activities.append(row)
+        rid = str(dinner.get("restaurant_id") or "").strip()
+        if rid:
+            activities.append({"time": "19:00 - 21:00", "from": "restaurant", "id": rid})
         else:
-            row = {
-                "time": "19:00 - 21:00",
-                "title": dinner["name"],
-                "type": dinner.get("type", "餐厅"),
-                "description": str(dinner.get("description", "享用当地特色晚餐")),
-                "location": str(dinner.get("location", dinner_location)),
-            }
-            if dinner.get("price_yuan"):
-                row["priceYuan"] = int(dinner["price_yuan"])
-            activities.append(row)
+            activities.append({"time": "19:00 - 21:00", "from": "others", "title": dinner["name"]})
     else:
         activities.append(
             {
                 "time": "19:00 - 21:00",
+                "from": "others",
                 "title": f"{destination}{dinner_title}",
-                "type": "餐厅",
-                "description": "品尝当地特色晚餐，探索附近夜生活与夜市文化。",
-                "location": dinner_location,
             }
         )
     return activities
@@ -478,22 +413,7 @@ def build_trip_response(
     transport_budget = max(int(budget * 0.15), 200)
     food_budget = max(int(budget * 0.25), 300)
 
-    selected_hotel_payload = dict(selected_hotel)
-    hid = selected_hotel.get("hotel_id")
-    if hid is not None and str(hid).strip():
-        selected_hotel_payload["hotelId"] = str(hid).strip()
-    selected_hotel_payload["totalCost"] = hotel_total
-    selected_hotel_payload["priceDisplay"] = (
-        selected_hotel.get("price_display") or f"¥{hotel_nightly}/晚"
-    )
-    if selected_hotel.get("rating"):
-        selected_hotel_payload["rating"] = float(selected_hotel["rating"])
-    if selected_hotel.get("address"):
-        selected_hotel_payload["address"] = selected_hotel["address"]
-    if selected_hotel.get("position_desc"):
-        selected_hotel_payload["positionDesc"] = selected_hotel["position_desc"]
-    if selected_hotel.get("image_url"):
-        selected_hotel_payload["imageUrl"] = selected_hotel["image_url"]
+    hid_s = str(selected_hotel.get("hotel_id") or "").strip() or None
 
     estimated_cost = hotel_total + transport_budget + food_budget
 
@@ -517,7 +437,8 @@ def build_trip_response(
             ],
             "accommodation": [
                 {
-                    "name": selected_hotel["name"],
+                    "name": "已选酒店",
+                    "hotelId": hid_s,
                     "cost": hotel_nightly,
                     "totalCost": hotel_total,
                     "nights": total_days,
@@ -535,7 +456,9 @@ def build_trip_response(
             ],
         },
         "estimatedCost": estimated_cost,
-        "selectedHotel": selected_hotel_payload,
+        "selectedHotelId": hid_s,
+        "hotelNightlyCost": hotel_nightly,
+        "hotelTotalCost": hotel_total,
         "alternatives": alternatives,
         "createdAt": datetime.utcnow().isoformat(),
         "updatedAt": datetime.utcnow().isoformat(),

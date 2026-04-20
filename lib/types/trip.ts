@@ -1,45 +1,59 @@
-/** PG 向量库主键引用：地图与聚合查询用，避免仅靠模糊文案地理编码 */
-export type ActivityRef = {
-  attractionId?: string
-  hotelId?: string
-  restaurantId?: string
+/**
+ * 活动语义：`from` + `id` 指向 PG POI；`others` 可无 id，用文案字段。
+ * 不兼容旧字段 `type` / `ref`。
+ */
+
+export type TransitRoute = {
+  duration: number
+  walking_distance: number
+  cost: number
+  segments: Array<{ type: string; name: string }>
+  /** 高德 Web 服务 API 返回的完整路径坐标（GCJ-02），后端生成时写入 */
+  polyline: Array<{ lat: number; lng: number }>
 }
 
-/**
- * 行程活动类型（与查表语义绑定，勿写任意中文标签）
- * - recommendation → 景点/推荐 POI，对应 ref.attractionId
- * - restaurant → 餐厅，对应 ref.restaurantId
- * - hotel → 住宿，对应 ref.hotelId
- * - others → 购物、休闲、自由活动、无 ref 的说明性活动
- */
-export const TRIP_ACTIVITY_KINDS = ["recommendation", "restaurant", "hotel", "others"] as const
-export type TripActivityKind = (typeof TRIP_ACTIVITY_KINDS)[number]
+export type TransitSegment = {
+  fromTitle: string
+  toTitle: string
+  fromIndex: number
+  toIndex: number
+  route: TransitRoute
+}
 
-/** UI 展示用（数据层仍存英文 kind） */
-export function formatTripActivityType(type: string): string {
-  const m: Record<TripActivityKind, string> = {
+/** 后端一次性 enrichment 后写回 Mongo 的天数结构，含坐标与路线 polyline */
+export type EnrichedDay = {
+  day: number
+  title: string
+  activities: TripActivityResolved[]
+  transitSegments?: TransitSegment[]
+}
+export const TRIP_ACTIVITY_KINDS = ["recommendation", "restaurant", "hotel", "others"] as const
+export type TripActivityFrom = (typeof TRIP_ACTIVITY_KINDS)[number]
+
+/** UI 展示用 */
+export function formatTripActivityType(from: string): string {
+  const m: Record<TripActivityFrom, string> = {
     recommendation: "推荐景点",
     restaurant: "餐厅",
     hotel: "酒店",
     others: "其他",
   }
-  return (m as Record<string, string>)[type] ?? type
+  return (m as Record<string, string>)[from] ?? from
 }
 
-/** Mongo 中可为 ref-only（无 title/description）；详情由 /api/trips/locations 从 PG 补全 */
-export type TripActivityBase = {
+/** Mongo / API 持久化活动 */
+export type TripActivityStored = {
   time: string
-  /** 新数据请只用 TripActivityKind；历史/Agent 仍可能为中文旧值 */
-  type: TripActivityKind | string
+  from: TripActivityFrom
+  /** PG 主键；others 可无 */
+  id?: string
   title?: string
   description?: string
   location?: string
-  ref?: ActivityRef
-  coordinate?: { lat: number; lng: number }
   priceYuan?: number
+  coordinate?: { lat: number; lng: number }
 }
 
-/** 备选景点 */
 export type AlternativeAttraction = {
   attractionId: string
   name: string
@@ -49,7 +63,6 @@ export type AlternativeAttraction = {
   description?: string
 }
 
-/** 备选酒店 */
 export type AlternativeHotel = {
   hotelId: string
   name: string
@@ -58,7 +71,6 @@ export type AlternativeHotel = {
   location?: string
 }
 
-/** 备选餐厅 */
 export type AlternativeRestaurant = {
   restaurantId: string
   name: string
@@ -68,9 +80,76 @@ export type AlternativeRestaurant = {
   location?: string
 }
 
-/** 用户修改行程时的快速替换候选池 */
 export type TripAlternatives = {
   attractions: AlternativeAttraction[]
   hotels: AlternativeHotel[]
   restaurants: AlternativeRestaurant[]
+}
+
+/** API 响应层 / enrichedDays 中的活动：坐标与 PG 字段已补全 */
+export type TripActivityResolved = TripActivityStored & {
+  title?: string
+  description?: string
+  location?: string
+  coordinate?: { lat: number; lng: number }
+}
+
+/** 根文档形状（与 Agent / Mongo 对齐） */
+export type TripDocument = {
+  id: string
+  userId?: string
+  title: string
+  destination: string
+  startDate: string
+  endDate: string
+  travelers: number
+  budget: number
+  travelStyle: string
+  status: string
+  highlights: string[]
+  days: Array<{
+    day: number
+    title: string
+    activities: TripActivityStored[]
+  }>
+  recommendations: Array<{ name: string; type: string; attractionId?: string; restaurantId?: string }>
+  practicalInfo: {
+    transportation: Array<{ name: string; cost: number; icon: string }>
+    accommodation: Array<{ name: string; cost: number; icon: string; totalCost?: number; nights?: number; hotelId?: string }>
+    food?: Array<{ name: string; cost: number; icon: string }>
+    tips: string[]
+  }
+  estimatedCost?: number
+  selectedHotelId?: string
+  hotelNightlyCost?: number
+  hotelTotalCost?: number
+  alternatives?: TripAlternatives
+  /**
+   * 生成后一次性写入：仅存高德路线规划结果（polyline），按天索引。
+   * activities 仍只保留 from+id，坐标/标题在 GET 时由 Python 按需解析。
+   */
+  routeSegments?: Record<string, TransitSegment[]>
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** GET /api/trips/:id 的响应体（不写回 Mongo） */
+export type TripDetailResponse = Omit<TripDocument, "routeSegments"> & {
+  /** Python 按需解析后的天数，含坐标和 transitSegments（路线来自 routeSegments 缓存） */
+  days: EnrichedDay[]
+  allLocations: Array<{ name: string; coordinate: { lat: number; lng: number } }>
+  selectedHotel?: SelectedHotelView
+}
+
+/** 酒店详情视图（PG 补全后，随 enrichedDays 一起缓存到 Mongo） */
+export type SelectedHotelView = {
+  hotelId: string
+  name?: string
+  cost?: number
+  rating?: number
+  priceDisplay?: string
+  totalCost?: number
+  address?: string
+  positionDesc?: string
+  imageUrl?: string
 }

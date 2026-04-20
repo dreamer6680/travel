@@ -51,24 +51,65 @@ export class TripService {
   }
 
   /**
-   * 将后台生成结果写入数据库，初始置为草稿状态
+   * 将后台生成结果写入数据库，初始置为草稿状态。
+   * 然后做一次临时 enrichment（坐标解析 + Amap 路线规划），
+   * 只把高德路线结果（routeSegments）写回 Mongo，activities 不变（仍只含 from+id）。
    */
   async finalizeTripGeneration(id: string, result: any) {
     const col = await this.col()
-    // 先读取原始文档以保留 userId 等字段
     const existing = await col.findOne({ id })
-    return col.updateOne(
+    await col.updateOne(
       { id },
       {
         $set: {
           ...result,
-          id,                          // 保持 id 不变
-          userId: existing?.userId,    // 保持 userId 不变
-          status: "draft",             // AI 生成后为草稿，用户确认前可修改
+          id,
+          userId: existing?.userId,
+          status: "draft",
           updatedAt: new Date().toISOString(),
         },
       }
     )
+
+    // 临时 enrichment：坐标解析 + Amap 路线规划，只保存路线结果
+    try {
+      const enriched = await proxyJsonToPythonAgent("/v1/trips/locations", {
+        method: "POST",
+        body: JSON.stringify({ trip: { ...result, id } }),
+      })
+      // 从每天的 transitSegments 提取路线结果，按天号（字符串）索引
+      const routeSegments: Record<string, any[]> = {}
+      for (const day of (enriched.days ?? [])) {
+        if (day.transitSegments?.length) {
+          routeSegments[String(day.day)] = day.transitSegments.map((s: any) => ({
+            fromIndex: s.fromIndex,
+            toIndex: s.toIndex,
+            route: s.route,
+          }))
+        }
+      }
+      if (Object.keys(routeSegments).length > 0) {
+        await col.updateOne({ id }, { $set: { routeSegments } })
+        console.log("[TripService] routeSegments 已写入", {
+          tripId: id,
+          dayKeys: Object.keys(routeSegments),
+          counts: Object.fromEntries(
+            Object.entries(routeSegments).map(([k, v]) => [k, Array.isArray(v) ? v.length : 0])
+          ),
+        })
+      } else {
+        const perDay = (enriched.days ?? []).map((d: any) => ({
+          day: d.day,
+          segCount: d.transitSegments?.length ?? 0,
+        }))
+        console.warn(
+          "[TripService] 未写入 routeSegments：Python 返回的 days 中无 transitSegments。请查看 Agent 日志（AMAP_WEB_SERVICE_KEY、高德 status/infocode）",
+          { tripId: id, perDay }
+        )
+      }
+    } catch (e) {
+      console.warn("[TripService] post-generation route caching failed:", e)
+    }
   }
 
   /**

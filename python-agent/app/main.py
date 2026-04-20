@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .agents.graph import trip_agent_graph
-from .config import settings
+from .config import AGENT_DOTENV_APPLIED, AGENT_DOTENV_PATH, AGENT_ROOT, settings
 from .model_router import model_router
 from .models import (
     ChatMessage,
@@ -27,6 +27,16 @@ from .services.trip_tools import build_candidate_attractions
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("python-agent")
 
+_amap_ok = bool((settings.amap_web_service_key or "").strip())
+logger.info(
+    "python-agent 环境: AGENT_ROOT=%s dotenv路径=%s 文件存在=%s load_dotenv返回=%s AMAP_WEB_SERVICE_KEY=%s",
+    AGENT_ROOT,
+    AGENT_DOTENV_PATH,
+    AGENT_DOTENV_PATH.is_file(),
+    AGENT_DOTENV_APPLIED,
+    "已配置" if _amap_ok else "未配置",
+)
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
@@ -44,7 +54,16 @@ app.add_middleware(
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "provider": settings.llm_provider, "fallback": settings.llm_fallback_provider}
+    return {
+        "ok": True,
+        "provider": settings.llm_provider,
+        "fallback": settings.llm_fallback_provider,
+        "agent_root": str(AGENT_ROOT),
+        "dotenv_path": str(AGENT_DOTENV_PATH),
+        "dotenv_file_exists": AGENT_DOTENV_PATH.is_file(),
+        "dotenv_applied": AGENT_DOTENV_APPLIED,
+        "amap_web_service_key_configured": bool((settings.amap_web_service_key or "").strip()),
+    }
 
 
 @app.post(
@@ -90,13 +109,16 @@ async def generate_trip(request: TripGenerateRequest):
 @app.post(
     "/v1/trips/locations",
     summary="增强行程地点",
-    description="返回包含地点坐标的行程数据，供地图页渲染。",
+    description="返回包含地点坐标的行程数据，供地图页渲染。"
+    "传入 routeSegments 时直接注入路线，跳过高德 API 调用。",
 )
 async def trip_locations(payload: Dict[str, object]):
     trip = payload.get("trip")
     if not isinstance(trip, dict):
         raise HTTPException(status_code=400, detail="invalid trip payload")
-    return await enhance_trip_locations(trip)
+    route_segments = payload.get("routeSegments")
+    provided = route_segments if isinstance(route_segments, dict) else None
+    return await enhance_trip_locations(trip, provided_segments=provided)
 
 
 @app.get(

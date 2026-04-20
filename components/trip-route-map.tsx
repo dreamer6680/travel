@@ -4,40 +4,20 @@ import { useState, useMemo, useEffect } from "react"
 import { TripMap } from "./trip-map"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MapPin, Route, Clock, Utensils, ShoppingBag, Camera, Trees, BookOpen, Coffee } from "lucide-react"
+import { MapPin, Route, Clock, Utensils, ShoppingBag, Camera } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatTripActivityType, type ActivityRef } from "@/lib/types/trip"
+import { formatTripActivityType, type TripActivityStored, type EnrichedDay, type TransitSegment } from "@/lib/types/trip"
 
 interface Coordinate {
   lat: number
   lng: number
 }
 
-interface ActivityWithLocation {
-  time: string
-  title?: string
-  type: string
-  description?: string
-  location?: string
-  ref?: ActivityRef
+interface ActivityWithLocation extends TripActivityStored {
   coordinate?: Coordinate
 }
 
-interface TransitSegment {
-  fromTitle: string
-  toTitle: string
-  fromIndex: number
-  toIndex: number
-  route: {
-    duration: number
-    distance: number
-    segments: Array<{ type: string; name: string }>
-    /** 高德 API 返回的完整路径坐标，存在时用于绘制真实路线 */
-    polyline?: Coordinate[]
-  }
-}
-
-interface DayWithLocations {
+type DayWithLocations = EnrichedDay | {
   day: number
   title: string
   activities: ActivityWithLocation[]
@@ -64,19 +44,16 @@ const DAY_COLORS = [
   "#a0d911",  // 黄绿
 ]
 
-function getActivityIcon(type: string) {
-  const t = type.toLowerCase()
-  if (t === "restaurant" || type.includes("餐厅") || type.includes("美食")) {
+function getActivityIcon(from: string) {
+  const t = from.toLowerCase()
+  if (t === "restaurant") {
     return <Utensils className="h-3.5 w-3.5" />
   }
-  if (t === "hotel" || type.includes("酒店") || type.includes("住宿")) {
+  if (t === "hotel") {
     return <MapPin className="h-3.5 w-3.5" />
   }
   if (t === "recommendation") return <Camera className="h-3.5 w-3.5" />
-  if (t === "others" || type.includes("购物")) return <ShoppingBag className="h-3.5 w-3.5" />
-  if (type.includes("咖啡")) return <Coffee className="h-3.5 w-3.5" />
-  if (type.includes("公园") || type.includes("自然")) return <Trees className="h-3.5 w-3.5" />
-  if (type.includes("博物馆") || type.includes("文化")) return <BookOpen className="h-3.5 w-3.5" />
+  if (t === "others") return <ShoppingBag className="h-3.5 w-3.5" />
   return <Camera className="h-3.5 w-3.5" />
 }
 
@@ -147,20 +124,47 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
           content: `${a.time}`,
           index: idx,
           color: dayColor,
-          type: a.type,
+          type: a.from,
         }
       })
   }, [currentDay, dayColor])
 
-  /** 当天活动顺序下的有效坐标，用于 AMap.Driving 一条驾车线（起点→途经点→终点） */
-  const drivingRoutePoints = useMemo(() => {
+  /**
+   * 检测服务端是否已为所有相邻有坐标活动对提供了真实 polyline。
+   * 若是，不再传 transitStops，彻底屏蔽客户端 AMap.Transfer 调用。
+   */
+  const allSegmentsHaveServerPolyline = useMemo(() => {
+    if (!currentDay?.transitSegments?.length) return false
+    const validWithIdx = currentDay.activities
+      .map((a: ActivityWithLocation, i: number) => ({ a, i }))
+      .filter(({ a }) => isValidCoord(a.coordinate))
+    if (validWithIdx.length < 2) return false
+    const segMap = new Map(
+      currentDay.transitSegments.map((s: TransitSegment) => [`${s.fromIndex}-${s.toIndex}`, s])
+    )
+    return validWithIdx.slice(0, -1).every(({ i }, idx) => {
+      const nextI = validWithIdx[idx + 1].i
+      const seg = segMap.get(`${i}-${nextI}`)
+      return seg?.route?.polyline && seg.route.polyline.length >= 2
+    })
+  }, [currentDay])
+
+  /** 仅当服务端 polyline 不完整时传给 TripMap，触发客户端 AMap.Transfer 补全 */
+  const orderedActivityCoords = useMemo(() => {
+    if (allSegmentsHaveServerPolyline) return undefined
     if (!currentDay) return undefined
     const pts: Coordinate[] = []
     for (const a of currentDay.activities) {
       if (isValidCoord(a.coordinate)) pts.push(a.coordinate)
     }
     return pts.length >= 2 ? pts : undefined
-  }, [currentDay])
+  }, [currentDay, allSegmentsHaveServerPolyline])
+
+  /** 公交换乘规划用城市名（高德 city 参数） */
+  const transitCityName = useMemo(
+    () => destination.replace(/市\s*$/, "").trim() || destination.trim() || "上海",
+    [destination],
+  )
 
   // 生成路线：优先使用高德 API 返回的真实路径，否则降级为直线
   const polylines = useMemo(() => {
@@ -284,8 +288,8 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
             center={mapCenter}
             markers={markers}
             polylines={polylines}
-            drivingRoutePoints={drivingRoutePoints}
-            routeStrokeColor={dayColor}
+            transitStops={orderedActivityCoords}
+            transitCity={transitCityName}
             height={mapHeight}
             className="w-full rounded-none"
             activeIndex={activeMarkerIndex}
@@ -357,8 +361,8 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
                           {act.time}
                         </span>
                         <Badge variant="outline" className="text-[10px] h-4 px-1.5 flex items-center gap-0.5">
-                          {getActivityIcon(act.type)}
-                          {formatTripActivityType(act.type)}
+                          {getActivityIcon(act.from)}
+                          {formatTripActivityType(act.from)}
                         </Badge>
                         {hasCoord && (
                           <MapPin className={cn("h-3 w-3 ml-auto flex-shrink-0",

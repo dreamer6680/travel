@@ -1,16 +1,5 @@
 import clientPromise from "./db"
-import type { TripActivityKind } from "./types/trip"
-
-interface Recomendation {
-  id: number
-  name: string
-  location: string
-  rating: number
-  type: string
-  description: string
-  imageUrl: string
-  likes: number
-}
+import type { TripActivityFrom, TripAlternatives } from "./types/trip"
 
 interface User {
   id: number
@@ -70,11 +59,12 @@ interface Trip {
     title: string
     activities: {
       time: string
-      type: TripActivityKind
+      from: TripActivityFrom
+      id?: string
       title?: string
       description?: string
       location?: string
-      ref?: { attractionId?: string; hotelId?: string; restaurantId?: string }
+      priceYuan?: number
     }[]
   }[]
   recommendations: {
@@ -83,9 +73,21 @@ interface Trip {
   }[]
   practicalInfo: {
     transportation: { name: string; cost: number; icon: string }[]
-    accommodation: { name: string; cost: number; icon: string }[]
+    accommodation: Array<{
+      name: string
+      cost: number
+      icon: string
+      totalCost?: number
+      nights?: number
+      hotelId?: string | null
+    }>
+    food?: { name: string; cost: number; icon: string }[]
     tips: string[]
   }
+  selectedHotelId?: string | null
+  hotelNightlyCost?: number
+  hotelTotalCost?: number
+  alternatives?: TripAlternatives
   createdAt: string
   updatedAt: string
 }
@@ -119,13 +121,11 @@ export async function initDatabase() {
     const client = await clientPromise
     const db = client.db("trip")
 
-    const attractions = db.collection<Recomendation>("Recomendations")
     const users = db.collection<User>("Users")
     const trips = db.collection<Trip>("Trips")
     const blogs = db.collection<TravelBlog>("TravelBlogs")
 
-    // 清空现有数据
-    await attractions.deleteMany({})
+    // 清空现有数据（POI 目录仅在 PostgreSQL，不在 Mongo 维护）
     await users.deleteMany({})
     await trips.deleteMany({})
     await blogs.deleteMany({})
@@ -150,33 +150,39 @@ export async function initDatabase() {
             activities: [
               {
                 time: "09:00 - 11:00",
+                from: "others",
                 title: "浅草寺",
-                type: "recommendation",
-                description: "东京最古老的寺庙，体验传统日本文化。可以在仲见世通购买纪念品和品尝小吃。",
+                description:
+                  "东京最古老的寺庙，体验传统日本文化。可以在仲见世通购买纪念品和品尝小吃。",
+                location: "浅草",
               },
               {
                 time: "11:30 - 13:00",
+                from: "others",
                 title: "午餐：浅草寿司",
-                type: "restaurant",
                 description: "品尝正宗的日本寿司，位于浅草寺附近的人气餐厅。",
+                location: "浅草",
               },
               {
                 time: "14:00 - 16:00",
+                from: "others",
                 title: "东京晴空塔",
-                type: "recommendation",
                 description: "登上东京最高的观景台，俯瞰整个东京城市风光。",
+                location: "墨田区",
               },
               {
                 time: "16:30 - 18:30",
+                from: "others",
                 title: "晴空塔购物中心",
-                type: "others",
                 description: "在日本最大的购物中心之一享受购物体验。",
+                location: "晴空塔",
               },
               {
                 time: "19:00 - 21:00",
+                from: "others",
                 title: "晚餐：隅田川旁餐厅",
-                type: "restaurant",
                 description: "在隅田川旁享用晚餐，欣赏晴空塔的夜景。",
+                location: "隅田川",
               },
             ],
           },
