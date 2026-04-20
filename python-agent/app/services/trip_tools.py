@@ -220,34 +220,51 @@ def build_day_activities(
 
     # —— 上午景点 ——
     if morning:
-        row: Dict[str, Any] = {
-            "time": "09:00 - 11:30",
-            "title": morning["name"],
-            "type": morning.get("type", "景点"),
-            "description": str(morning.get("description", "")),
-            "location": str(morning.get("location", destination)),
-        }
         r = _ref_from_entity(morning)
         if r:
-            row["ref"] = r
-        activities.append(row)
+            # 仅存 PG 主键 + 时段/类型，文案由查询 attractions 表补全
+            activities.append(
+                {
+                    "time": "09:00 - 11:30",
+                    "type": morning.get("type", "景点"),
+                    "ref": r,
+                }
+            )
+        else:
+            activities.append(
+                {
+                    "time": "09:00 - 11:30",
+                    "title": morning["name"],
+                    "type": morning.get("type", "景点"),
+                    "description": str(morning.get("description", "")),
+                    "location": str(morning.get("location", destination)),
+                }
+            )
 
     # —— 午餐 ——
     lunch_location = str(morning.get("location", destination)) if morning else destination
     if lunch:
-        row = {
-            "time": "12:00 - 13:30",
-            "title": lunch["name"],
-            "type": lunch.get("type", "餐厅"),
-            "description": str(lunch.get("description", "品尝当地特色风味")),
-            "location": str(lunch.get("location", lunch_location)),
-        }
-        if lunch.get("price_yuan"):
-            row["priceYuan"] = int(lunch["price_yuan"])
         r = _ref_from_entity(lunch)
         if r:
-            row["ref"] = r
-        activities.append(row)
+            row = {
+                "time": "12:00 - 13:30",
+                "type": lunch.get("type", "餐厅"),
+                "ref": r,
+            }
+            if lunch.get("price_yuan"):
+                row["priceYuan"] = int(lunch["price_yuan"])
+            activities.append(row)
+        else:
+            row = {
+                "time": "12:00 - 13:30",
+                "title": lunch["name"],
+                "type": lunch.get("type", "餐厅"),
+                "description": str(lunch.get("description", "品尝当地特色风味")),
+                "location": str(lunch.get("location", lunch_location)),
+            }
+            if lunch.get("price_yuan"):
+                row["priceYuan"] = int(lunch["price_yuan"])
+            activities.append(row)
     else:
         lunch_title = _LUNCH_TITLES[(day_num - 1) % len(_LUNCH_TITLES)]
         activities.append(
@@ -262,35 +279,51 @@ def build_day_activities(
 
     # —— 下午景点 ——
     if afternoon:
-        row = {
-            "time": "14:00 - 17:00",
-            "title": afternoon["name"],
-            "type": afternoon.get("type", "景点"),
-            "description": str(afternoon.get("description", "")),
-            "location": str(afternoon.get("location", destination)),
-        }
         r = _ref_from_entity(afternoon)
         if r:
-            row["ref"] = r
-        activities.append(row)
+            activities.append(
+                {
+                    "time": "14:00 - 17:00",
+                    "type": afternoon.get("type", "景点"),
+                    "ref": r,
+                }
+            )
+        else:
+            activities.append(
+                {
+                    "time": "14:00 - 17:00",
+                    "title": afternoon["name"],
+                    "type": afternoon.get("type", "景点"),
+                    "description": str(afternoon.get("description", "")),
+                    "location": str(afternoon.get("location", destination)),
+                }
+            )
 
     # —— 晚餐 ——
     dinner_location = str(afternoon.get("location", destination)) if afternoon else destination
     dinner_title = _DINNER_TITLES[(day_num - 1) % len(_DINNER_TITLES)]
     if dinner:
-        row = {
-            "time": "19:00 - 21:00",
-            "title": dinner["name"],
-            "type": dinner.get("type", "餐厅"),
-            "description": str(dinner.get("description", "享用当地特色晚餐")),
-            "location": str(dinner.get("location", dinner_location)),
-        }
-        if dinner.get("price_yuan"):
-            row["priceYuan"] = int(dinner["price_yuan"])
         r = _ref_from_entity(dinner)
         if r:
-            row["ref"] = r
-        activities.append(row)
+            row = {
+                "time": "19:00 - 21:00",
+                "type": dinner.get("type", "餐厅"),
+                "ref": r,
+            }
+            if dinner.get("price_yuan"):
+                row["priceYuan"] = int(dinner["price_yuan"])
+            activities.append(row)
+        else:
+            row = {
+                "time": "19:00 - 21:00",
+                "title": dinner["name"],
+                "type": dinner.get("type", "餐厅"),
+                "description": str(dinner.get("description", "享用当地特色晚餐")),
+                "location": str(dinner.get("location", dinner_location)),
+            }
+            if dinner.get("price_yuan"):
+                row["priceYuan"] = int(dinner["price_yuan"])
+            activities.append(row)
     else:
         activities.append(
             {

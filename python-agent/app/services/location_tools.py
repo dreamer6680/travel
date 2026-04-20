@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
@@ -9,6 +10,20 @@ from ..config import settings
 from .pg_vector_store import pg_vector_store
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(obj: Any) -> Any:
+    """保证 FastAPI/JSON 可序列化（Decimal 等）。"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_json_safe(v) for v in obj)
+    return obj
+
 
 # 高德 GCJ02 近似市中心；无 Web Key、DB 也无坐标时优于随机伪点
 _CITY_GCJ02_CENTERS: Dict[str, Tuple[float, float]] = {
@@ -343,6 +358,7 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
             rid = ref.get("restaurantId") if isinstance(ref, dict) else None
 
             coord: Optional[Dict[str, float]] = None
+            row: Optional[Dict[str, Any]] = None
             if aid:
                 row = await pg_vector_store.fetch_attraction_by_id(str(aid))
                 if row and row.get("latitude") is not None and row.get("longitude") is not None:
@@ -358,9 +374,10 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
 
             if coord is None:
                 t = str(act.get("type", ""))
-                if hid or "酒店" in t:
+                tl = t.lower()
+                if hid or tl == "hotel" or "酒店" in t:
                     entity: Literal["attraction", "hotel", "restaurant"] = "hotel"
-                elif rid or t in ("餐厅", "咖啡厅", "茶馆", "小吃", "美食"):
+                elif rid or tl == "restaurant" or t in ("餐厅", "咖啡厅", "茶馆", "小吃", "美食"):
                     entity = "restaurant"
                 else:
                     entity = "attraction"
@@ -368,8 +385,22 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
 
             activity_coords.append(coord)
 
-            loc_name = location or title
-            enriched = {**act, "location": loc_name, "coordinate": coord}
+            enriched = {**act, "coordinate": coord}
+            # ref 活动：Mongo 不存文案，此处从 PG 补展示字段（仅响应层，不写回 Mongo）
+            if row and (aid or hid or rid):
+                if not enriched.get("title") and row.get("name"):
+                    enriched["title"] = str(row["name"])
+                desc = row.get("description")
+                if not enriched.get("description") and desc is not None:
+                    enriched["description"] = str(desc)
+                loc_pg = row.get("location")
+                if not enriched.get("location") and loc_pg:
+                    enriched["location"] = str(loc_pg)
+                loc_name = str(enriched.get("location") or enriched.get("title") or destination)
+            else:
+                loc_name = location or title or destination
+            enriched["location"] = loc_name
+
             enhanced_activities.append(enriched)
 
             if loc_name not in seen:
@@ -406,8 +437,10 @@ async def enhance_trip_locations(trip: Dict[str, Any]) -> Dict[str, Any]:
             day_out["transitSegments"] = transit_segments
         enhanced_days.append(day_out)
 
-    return {
-        "destination": destination,
-        "days": enhanced_days,
-        "allLocations": all_locations,
-    }
+    return _json_safe(
+        {
+            "destination": destination,
+            "days": enhanced_days,
+            "allLocations": all_locations,
+        }
+    )

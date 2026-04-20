@@ -12,7 +12,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { TripRouteMap } from "@/components/trip-route-map"
-import type { TripActivityBase } from "@/lib/types/trip"
+import { formatTripActivityType, type TripActivityBase } from "@/lib/types/trip"
 
 interface Trip {
   id: string
@@ -194,6 +194,9 @@ export default function TripDetailPage() {
   }
 
   const styleInfo = TRAVEL_STYLE_LABELS[trip.travelStyle] ?? { label: trip.travelStyle, desc: "" }
+  /** 地图接口会从 PG 按 ref 补全 title/description，列表优先用增强后的 days */
+  const itineraryDays =
+    locationData?.days && locationData.days.length > 0 ? locationData.days : trip.days
   const tripDays = Math.ceil(
     (new Date(trip.endDate).getTime() - new Date(trip.startDate).getTime()) / (1000 * 60 * 60 * 24)
   )
@@ -324,15 +327,15 @@ export default function TripDetailPage() {
           <TabsContent value="itinerary">
             <Card>
               <CardHeader>
-                <CardTitle>{trip.days.length} 天行程安排</CardTitle>
+                <CardTitle>{itineraryDays.length} 天行程安排</CardTitle>
                 <CardDescription>根据您的偏好生成的详细行程</CardDescription>
               </CardHeader>
               <CardContent>
-                {trip.days.length === 0 ? (
+                {itineraryDays.length === 0 ? (
                   <p className="text-muted-foreground text-center py-8">行程详情尚未生成</p>
                 ) : (
                   <Accordion type="single" collapsible className="w-full">
-                    {trip.days.map((day) => (
+                    {itineraryDays.map((day) => (
                       <AccordionItem key={day.day} value={`day-${day.day}`}>
                         <AccordionTrigger>
                           <div className="flex items-center">
@@ -342,7 +345,7 @@ export default function TripDetailPage() {
                         </AccordionTrigger>
                         <AccordionContent>
                           <div className="space-y-6">
-                            {day.activities.map((activity, index) => (
+                            {day.activities.map((activity: TripActivityBase, index: number) => (
                               <DayActivity key={index} {...activity} />
                             ))}
                           </div>
@@ -495,11 +498,17 @@ function DayActivity({
   description,
 }: {
   time: string
-  title: string
+  title?: string
   type: string
-  description: string
+  description?: string
 }) {
-  const icon = type === "餐厅" ? <Utensils className="h-5 w-5" /> : <MapPin className="h-5 w-5" />
+  const t = type.toLowerCase()
+  const icon =
+    t === "restaurant" || type === "餐厅" ? (
+      <Utensils className="h-5 w-5" />
+    ) : (
+      <MapPin className="h-5 w-5" />
+    )
 
   return (
     <div className="flex gap-4">
@@ -512,10 +521,12 @@ function DayActivity({
       <div className="flex-1">
         <div className="flex items-center gap-2 mb-1">
           <div className="p-1.5 rounded-full bg-primary/10 text-primary">{icon}</div>
-          <h4 className="font-medium">{title}</h4>
-          <Badge variant="outline" className="ml-auto">{type}</Badge>
+          <h4 className="font-medium">{title ?? "地点"}</h4>
+          <Badge variant="outline" className="ml-auto">{formatTripActivityType(type)}</Badge>
         </div>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        {description ? (
+          <p className="text-sm text-muted-foreground">{description}</p>
+        ) : null}
       </div>
     </div>
   )

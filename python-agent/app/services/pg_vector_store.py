@@ -10,6 +10,19 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+def _normalize_lat_lng_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """asyncpg 对 NUMERIC/DECIMAL 返回 Decimal，统一为 float，便于 JSON 与前端。"""
+    out = dict(row)
+    for k in ("latitude", "longitude"):
+        v = out.get(k)
+        if v is not None:
+            try:
+                out[k] = float(v)
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
 class PgVectorStore:
     def __init__(self) -> None:
         self._pool: asyncpg.Pool | None = None
@@ -356,66 +369,130 @@ class PgVectorStore:
     async def fetch_attraction_by_id(self, attraction_id: str) -> Dict[str, Any] | None:
         if not (attraction_id or "").strip():
             return None
+        aid = attraction_id.strip()
         pool = await self.get_pool()
+        queries: List[tuple[str, str]] = [
+            (
+                "attractions",
+                """
+                SELECT attraction_id, name, location, type, description, rating,
+                       latitude, longitude
+                FROM attractions
+                WHERE attraction_id = $1
+                LIMIT 1
+                """,
+            ),
+            (
+                "attraction_vectors",
+                """
+                SELECT attraction_id::text AS attraction_id, name, location, type, description, rating,
+                       latitude, longitude
+                FROM attraction_vectors
+                WHERE attraction_id::text = $1
+                LIMIT 1
+                """,
+            ),
+        ]
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """
-                    SELECT attraction_id, name, location, type, description, rating,
-                           latitude, longitude
-                    FROM attractions
-                    WHERE attraction_id = $1
-                    LIMIT 1
-                    """,
-                    attraction_id.strip(),
-                )
-            return dict(row) if row else None
+                for table_name, sql in queries:
+                    try:
+                        row = await conn.fetchrow(sql, aid)
+                        if row:
+                            return _normalize_lat_lng_row(dict(row))
+                    except asyncpg.exceptions.UndefinedTableError:
+                        logger.debug("fetch_attraction_by_id: 表 %s 不存在，尝试下一候选", table_name)
+                    except Exception as exc:
+                        logger.debug("fetch_attraction_by_id [%s] %s: %s", table_name, attraction_id, exc)
         except Exception as exc:
             logger.debug("fetch_attraction_by_id %s: %s", attraction_id, exc)
-            return None
+        return None
 
     async def fetch_hotel_by_id(self, hotel_id: str) -> Dict[str, Any] | None:
         if not (hotel_id or "").strip():
             return None
+        hid = hotel_id.strip()
         pool = await self.get_pool()
+        queries: List[tuple[str, str]] = [
+            (
+                "hotels",
+                """
+                SELECT hotel_id, name, location, rating, price_yuan, price_display,
+                       star, image_url, address, position_desc, latitude, longitude,
+                       description
+                FROM hotels
+                WHERE hotel_id = $1
+                LIMIT 1
+                """,
+            ),
+            (
+                "hotel_vectors",
+                """
+                SELECT hotel_id, name, location, rating, price_yuan, price_display,
+                       star, image_url, address, position_desc, latitude, longitude,
+                       description
+                FROM hotel_vectors
+                WHERE hotel_id = $1
+                LIMIT 1
+                """,
+            ),
+        ]
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """
-                    SELECT hotel_id, name, location, rating, price_yuan, price_display,
-                           star, image_url, address, position_desc, latitude, longitude,
-                           description
-                    FROM hotels
-                    WHERE hotel_id = $1
-                    LIMIT 1
-                    """,
-                    hotel_id.strip(),
-                )
-            return dict(row) if row else None
+                for table_name, sql in queries:
+                    try:
+                        row = await conn.fetchrow(sql, hid)
+                        if row:
+                            return _normalize_lat_lng_row(dict(row))
+                    except asyncpg.exceptions.UndefinedTableError:
+                        logger.debug("fetch_hotel_by_id: 表 %s 不存在，尝试下一候选", table_name)
+                    except Exception as exc:
+                        logger.debug("fetch_hotel_by_id [%s] %s: %s", table_name, hotel_id, exc)
         except Exception as exc:
             logger.debug("fetch_hotel_by_id %s: %s", hotel_id, exc)
-            return None
+        return None
 
     async def fetch_restaurant_by_id(self, restaurant_id: str) -> Dict[str, Any] | None:
         if not (restaurant_id or "").strip():
             return None
+        rid = restaurant_id.strip()
         pool = await self.get_pool()
+        queries: List[tuple[str, str]] = [
+            (
+                "restaurants",
+                """
+                SELECT restaurant_id, name, location, type, description, rating,
+                       price_range, price_yuan, latitude, longitude
+                FROM restaurants
+                WHERE restaurant_id = $1
+                LIMIT 1
+                """,
+            ),
+            (
+                "restaurant_vectors",
+                """
+                SELECT restaurant_id, name, location, type, description, rating,
+                       price_range, price_yuan, latitude, longitude
+                FROM restaurant_vectors
+                WHERE restaurant_id = $1
+                LIMIT 1
+                """,
+            ),
+        ]
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """
-                    SELECT restaurant_id, name, location, type, description, rating,
-                           price_range, price_yuan, latitude, longitude
-                    FROM restaurants
-                    WHERE restaurant_id = $1
-                    LIMIT 1
-                    """,
-                    restaurant_id.strip(),
-                )
-            return dict(row) if row else None
+                for table_name, sql in queries:
+                    try:
+                        row = await conn.fetchrow(sql, rid)
+                        if row:
+                            return _normalize_lat_lng_row(dict(row))
+                    except asyncpg.exceptions.UndefinedTableError:
+                        logger.debug("fetch_restaurant_by_id: 表 %s 不存在，尝试下一候选", table_name)
+                    except Exception as exc:
+                        logger.debug("fetch_restaurant_by_id [%s] %s: %s", table_name, restaurant_id, exc)
         except Exception as exc:
             logger.debug("fetch_restaurant_by_id %s: %s", restaurant_id, exc)
-            return None
+        return None
 
     async def upsert_user_preference_vector(
         self, user_id: str, preference_text: str, embedding: List[float]

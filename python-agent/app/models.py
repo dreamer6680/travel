@@ -34,10 +34,12 @@ class ActivityRefModel(BaseModel):
 
 
 class ActivityModel(BaseModel):
+    """有 ref 时 title/description/location 可省略，由 PG 侧聚合补全。"""
+
     time: str
-    title: str
     type: str
-    description: str
+    title: Optional[str] = None
+    description: Optional[str] = None
     location: Optional[str] = None
     ref: Optional[ActivityRefModel] = None
     priceYuan: Optional[int] = None

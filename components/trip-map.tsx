@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 
-interface Coordinate {
+export interface Coordinate {
   lat: number
   lng: number
 }
@@ -28,6 +28,33 @@ interface Polyline {
   strokeStyle?: "solid" | "dashed"
 }
 
+/** 驾车/步行规划结果 → 折线点（GCJ02） */
+function extractPathFromRoute(route: any): Coordinate[] {
+  const out: Coordinate[] = []
+  if (!route) return out
+  const pushLngLat = (p: any) => {
+    if (!p) return
+    if (typeof p.lng === "number" && typeof p.lat === "number") {
+      out.push({ lng: p.lng, lat: p.lat })
+    } else if (typeof p.getLng === "function" && typeof p.getLat === "function") {
+      out.push({ lng: p.getLng(), lat: p.getLat() })
+    } else if (Array.isArray(p) && p.length >= 2) {
+      out.push({ lng: Number(p[0]), lat: Number(p[1]) })
+    }
+  }
+  if (Array.isArray(route.path) && route.path.length) {
+    for (const p of route.path) pushLngLat(p)
+    if (out.length >= 2) return out
+  }
+  if (!route.steps?.length) return out
+  for (const step of route.steps) {
+    const pts = step.path
+    if (!pts?.length) continue
+    for (const p of pts) pushLngLat(p)
+  }
+  return out
+}
+
 interface TripMapProps {
   center?: Coordinate
   zoom?: number
@@ -37,6 +64,13 @@ interface TripMapProps {
   className?: string
   /** 点击活动列表时传入要聚焦的标记序号（1-based），地图自动平移并弹出信息窗 */
   activeIndex?: number | null
+  /**
+   * 当日活动按顺序的 GCJ-02 坐标（景点/餐厅/酒店等）。
+   * ≥2 点时优先用 AMap.Driving 一条驾车线（起点、终点、途经点），与高德 Web 示例一致；失败则回退到 polylines。
+   */
+  drivingRoutePoints?: Coordinate[]
+  /** 驾车路线描边色（与当天主题色一致） */
+  routeStrokeColor?: string
 }
 
 declare global {
@@ -149,6 +183,8 @@ export function TripMap({
   height = "400px",
   className = "",
   activeIndex = null,
+  drivingRoutePoints,
+  routeStrokeColor = "#1677ff",
 }: TripMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -158,6 +194,12 @@ export function TripMap({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const isInitialized = useRef(false)
+  /** 服务端未带 polyline 时，客户端驾车/步行规划后的路线（避免只画两点直线） */
+  const [resolvedPolylines, setResolvedPolylines] = useState<Polyline[] | null>(null)
+  const routeResolveGen = useRef(0)
+  /** 多点 AMap.Driving 一条线（起点→途经→终点） */
+  const [drivingPathResult, setDrivingPathResult] = useState<Coordinate[] | null>(null)
+  const drivingPathGen = useRef(0)
 
   // 初始化地图（只执行一次）
   useEffect(() => {
@@ -172,11 +214,24 @@ export function TripMap({
         const apiKey = process.env.NEXT_PUBLIC_AMAP_KEY
         if (!apiKey) throw new Error("NEXT_PUBLIC_AMAP_KEY 未配置")
 
+        const sec = process.env.NEXT_PUBLIC_AMAP_SECURITY_JS_CODE
+        if (sec && typeof window !== "undefined") {
+          ;(window as unknown as { _AMapSecurityConfig?: { securityJsCode: string } })._AMapSecurityConfig = {
+            securityJsCode: sec,
+          }
+        }
+
         const AMapLoader = (await import("@amap/amap-jsapi-loader")).default
         const AMap = await AMapLoader.load({
           key: apiKey,
           version: "2.0",
-          plugins: ["AMap.Marker", "AMap.InfoWindow", "AMap.Polyline"],
+          plugins: [
+            "AMap.Marker",
+            "AMap.InfoWindow",
+            "AMap.Polyline",
+            "AMap.Driving",
+            "AMap.Walking",
+          ],
         })
 
         const map = new AMap.Map(mapRef.current, {
@@ -214,6 +269,181 @@ export function TripMap({
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 同步 props → 先展示直线，再异步替换为驾车/步行真实路径
+  useEffect(() => {
+    setResolvedPolylines(null)
+  }, [polylines])
+
+  // 多点一条驾车线（与高德示例：起点、终点、waypoints 途经点）
+  useEffect(() => {
+    if (!drivingRoutePoints || drivingRoutePoints.length < 2 || isLoading) {
+      setDrivingPathResult(null)
+      return
+    }
+    const map = mapInstanceRef.current
+    const AMap = window.AMap
+    if (!map || !AMap) return
+
+    const gen = ++drivingPathGen.current
+    const pts = drivingRoutePoints
+    const origin = pts[0]
+    const dest = pts[pts.length - 1]
+
+    AMap.plugin(["AMap.Driving"], () => {
+      if (gen !== drivingPathGen.current) return
+      const driving = new AMap.Driving({
+        map: null,
+        hideMarkers: true,
+        showTraffic: false,
+      })
+
+      const onSearchDone = (status: string, result: any) => {
+        if (gen !== drivingPathGen.current) return
+        if (status !== "complete") {
+          setDrivingPathResult(null)
+          return
+        }
+        const dr = result?.routes?.[0] ?? result?.route
+        const path = extractPathFromRoute(dr)
+        setDrivingPathResult(path.length >= 2 ? path : null)
+      }
+
+      if (pts.length === 2) {
+        driving.search(
+          new AMap.LngLat(origin.lng, origin.lat),
+          new AMap.LngLat(dest.lng, dest.lat),
+          onSearchDone,
+        )
+      } else {
+        const maxWp = 16
+        const middle = pts.slice(1, -1)
+        const waypoints = middle.slice(0, maxWp).map((p) => new AMap.LngLat(p.lng, p.lat))
+        driving.search(
+          new AMap.LngLat(origin.lng, origin.lat),
+          new AMap.LngLat(dest.lng, dest.lat),
+          { waypoints },
+          onSearchDone,
+        )
+      }
+    })
+  }, [drivingRoutePoints, isLoading])
+
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map || isLoading) return
+    const AMap = window.AMap
+    if (!AMap) return
+
+    if (drivingRoutePoints && drivingRoutePoints.length >= 2) {
+      setResolvedPolylines(null)
+      return
+    }
+
+    const needStraightSegments = polylines
+      .map((pl, i) => ({ pl, i }))
+      .filter(({ pl }) => pl.path.length === 2)
+
+    if (needStraightSegments.length === 0) {
+      setResolvedPolylines(null)
+      return
+    }
+
+    const gen = ++routeResolveGen.current
+
+    const tryWalking = (
+      start: Coordinate,
+      end: Coordinate,
+      onDone: (path: Coordinate[] | null) => void,
+    ) => {
+      const walking = new AMap.Walking({ map: null, hideMarkers: true })
+      walking.search(
+        new AMap.LngLat(start.lng, start.lat),
+        new AMap.LngLat(end.lng, end.lat),
+        (wStatus: string, wResult: any) => {
+          if (gen !== routeResolveGen.current) return
+          const wr = wResult?.routes?.[0] ?? wResult?.route
+          if (wStatus === "complete" && wr) {
+            const path = extractPathFromRoute(wr)
+            onDone(path.length >= 2 ? path : null)
+          } else {
+            onDone(null)
+          }
+        },
+      )
+    }
+
+    const runDrivingThenWalking = (
+      start: Coordinate,
+      end: Coordinate,
+      onDone: (path: Coordinate[] | null) => void,
+    ) => {
+      const driving = new AMap.Driving({
+        map: null,
+        hideMarkers: true,
+        showTraffic: false,
+      })
+      driving.search(
+        new AMap.LngLat(start.lng, start.lat),
+        new AMap.LngLat(end.lng, end.lat),
+        (status: string, result: any) => {
+          if (gen !== routeResolveGen.current) return
+          const dr = result?.routes?.[0] ?? result?.route
+          if (status === "complete" && dr) {
+            const path = extractPathFromRoute(dr)
+            if (path.length >= 2) {
+              onDone(path)
+              return
+            }
+          }
+          tryWalking(start, end, onDone)
+        },
+      )
+    }
+
+    const next: Polyline[] = polylines.map((p) => ({ ...p, path: [...p.path] }))
+    let pending = needStraightSegments.length
+
+    const onSegmentDone = () => {
+      pending -= 1
+      if (pending === 0 && gen === routeResolveGen.current) {
+        setResolvedPolylines(next.map((p) => ({ ...p, path: [...p.path] })))
+      }
+    }
+
+    AMap.plugin(["AMap.Driving", "AMap.Walking"], () => {
+      if (gen !== routeResolveGen.current) return
+      needStraightSegments.forEach(({ pl, i }) => {
+        const [a, b] = pl.path
+        runDrivingThenWalking(a, b, (path) => {
+          if (gen !== routeResolveGen.current) return
+          if (path && path.length >= 2) {
+            next[i] = {
+              ...pl,
+              path,
+              strokeWeight: pl.strokeWeight ?? 4,
+            }
+          }
+          onSegmentDone()
+        })
+      })
+    })
+  }, [polylines, isLoading, drivingRoutePoints])
+
+  const polylinesEffective = resolvedPolylines ?? polylines
+
+  const polylinesToDraw: Polyline[] =
+    drivingRoutePoints && drivingRoutePoints.length >= 2 && drivingPathResult && drivingPathResult.length >= 2
+      ? [
+          {
+            path: drivingPathResult,
+            strokeColor: routeStrokeColor,
+            strokeWeight: 5,
+            strokeOpacity: 0.88,
+            strokeStyle: "solid",
+          },
+        ]
+      : polylinesEffective
 
   // 更新标记和路线（每次 markers/polylines 变化时）
   useEffect(() => {
@@ -254,8 +484,8 @@ export function TripMap({
       markersRef.current.push(markerInstance)
     })
 
-    // 添加路线
-    polylines.forEach((polyline) => {
+    // 添加路线（多点驾车一条线，或分段公交/步行/直线）
+    polylinesToDraw.forEach((polyline) => {
       const pl = new AMap.Polyline({
         path: polyline.path.map((c) => [c.lng, c.lat]),
         strokeColor: polyline.strokeColor || "#1890ff",
@@ -272,10 +502,10 @@ export function TripMap({
     })
 
     // 自适应缩放
-    if (markers.length > 0 || polylines.length > 0) {
+    if (markers.length > 0 || polylinesToDraw.length > 0) {
       map.setFitView(null, false, [60, 60, 60, 60])
     }
-  }, [markers, polylines, isLoading])
+  }, [markers, polylinesToDraw, isLoading])
 
   // 响应外部 activeIndex 变化：平移地图 + 弹出信息窗
   useEffect(() => {

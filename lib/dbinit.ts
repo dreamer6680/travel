@@ -1,4 +1,5 @@
 import clientPromise from "./db"
+import type { TripActivityKind } from "./types/trip"
 
 interface Recomendation {
   id: number
@@ -69,9 +70,11 @@ interface Trip {
     title: string
     activities: {
       time: string
-      title: string
-      type: string
-      description: string
+      type: TripActivityKind
+      title?: string
+      description?: string
+      location?: string
+      ref?: { attractionId?: string; hotelId?: string; restaurantId?: string }
     }[]
   }[]
   recommendations: {
@@ -148,31 +151,31 @@ export async function initDatabase() {
               {
                 time: "09:00 - 11:00",
                 title: "浅草寺",
-                type: "景点",
+                type: "recommendation",
                 description: "东京最古老的寺庙，体验传统日本文化。可以在仲见世通购买纪念品和品尝小吃。",
               },
               {
                 time: "11:30 - 13:00",
                 title: "午餐：浅草寿司",
-                type: "餐厅",
+                type: "restaurant",
                 description: "品尝正宗的日本寿司，位于浅草寺附近的人气餐厅。",
               },
               {
                 time: "14:00 - 16:00",
                 title: "东京晴空塔",
-                type: "景点",
+                type: "recommendation",
                 description: "登上东京最高的观景台，俯瞰整个东京城市风光。",
               },
               {
                 time: "16:30 - 18:30",
                 title: "晴空塔购物中心",
-                type: "购物",
+                type: "others",
                 description: "在日本最大的购物中心之一享受购物体验。",
               },
               {
                 time: "19:00 - 21:00",
                 title: "晚餐：隅田川旁餐厅",
-                type: "餐厅",
+                type: "restaurant",
                 description: "在隅田川旁享用晚餐，欣赏晴空塔的夜景。",
               },
             ],
@@ -232,169 +235,39 @@ export async function initDatabase() {
         id: 3,
         userId: "user1",
         title: "北京 5 日游",
-        "destination": "北京",
-        "startDate": "2025-08-10",
-        "endDate": "2025-08-15",
-        "travelers": 2,
-        "budget": 8000,
-        "travelStyle": "cultural",
-        "status": "confirmed",
-        "highlights": ["故宫", "长城", "天安门广场", "颐和园", "胡同游"],
-        "days": [
-          {
-            "day": 1,
-            "title": "天安门广场 & 故宫",
-            "activities": [
-              {
-                "time": "08:30 - 10:30",
-                "title": "天安门广场",
-                "type": "景点",
-                "description": "世界上最大的城市广场，感受中国现代历史的中心地带。"
-              },
-              {
-                "time": "10:45 - 14:00",
-                "title": "故宫博物院",
-                "type": "景点",
-                "description": "中国明清两代皇家宫殿，体验深厚的历史文化和宫廷建筑艺术。"
-              },
-              {
-                "time": "14:00 - 15:30",
-                "title": "午餐：全聚德烤鸭",
-                "type": "餐厅",
-                "description": "品尝北京著名的烤鸭，体验地道北京风味。"
-              },
-              {
-                "time": "16:00 - 18:00",
-                "title": "王府井步行街",
-                "type": "购物",
-                "description": "北京著名商业街，享受购物和小吃体验。"
-              }
-            ]
-          },
-          {
-            "day": 2,
-            "title": "长城一日游",
-            "activities": [
-              {
-                "time": "07:30 - 12:00",
-                "title": "慕田峪长城",
-                "type": "景点",
-                "description": "著名的长城景点，登长城，欣赏壮丽的山川风光。"
-              },
-              {
-                "time": "12:30 - 13:30",
-                "title": "午餐：农家乐",
-                "type": "餐厅",
-                "description": "品尝当地农家菜，体验乡村风味。"
-              },
-              {
-                "time": "14:00 - 18:00",
-                "title": "返回北京，自由活动",
-                "type": "休闲",
-                "description": "可选择休息或逛街。"
-              }
-            ]
-          },
-          {
-            "day": 3,
-            "title": "颐和园 & 圆明园",
-            "activities": [
-              {
-                "time": "09:00 - 12:00",
-                "title": "颐和园",
-                "type": "景点",
-                "description": "中国现存规模最大、保存最完整的皇家园林。"
-              },
-              {
-                "time": "12:30 - 13:30",
-                "title": "午餐：附近餐厅",
-                "type": "餐厅",
-                "description": "品尝京味家常菜。"
-              },
-              {
-                "time": "14:00 - 16:00",
-                "title": "圆明园遗址公园",
-                "type": "景点",
-                "description": "感受历史沧桑，了解清朝皇家园林的辉煌与毁灭。"
-              }
-            ]
-          },
-          {
-            "day": 4,
-            "title": "胡同游 & 南锣鼓巷",
-            "activities": [
-              {
-                "time": "09:00 - 11:30",
-                "title": "胡同骑行游",
-                "type": "文化体验",
-                "description": "骑自行车游览北京传统胡同，感受老北京生活气息。"
-              },
-              {
-                "time": "12:00 - 13:30",
-                "title": "午餐：老北京炸酱面",
-                "type": "餐厅",
-                "description": "品尝北京传统面食。"
-              },
-              {
-                "time": "14:00 - 17:00",
-                "title": "南锣鼓巷",
-                "type": "文化街区",
-                "description": "集文创、餐饮、手工艺于一体的历史街区。"
-              }
-            ]
-          },
-          {
-            "day": 5,
-            "title": "现代北京 & 购物",
-            "activities": [
-              {
-                "time": "09:00 - 11:00",
-                "title": "798艺术区",
-                "type": "文化艺术",
-                "description": "现代艺术展览和创意产业聚集地。"
-              },
-              {
-                "time": "11:30 - 13:00",
-                "title": "午餐：现代餐厅",
-                "type": "餐厅",
-                "description": "尝试北京的现代融合菜。"
-              },
-              {
-                "time": "14:00 - 18:00",
-                "title": "三里屯购物与夜生活",
-                "type": "购物 & 娱乐",
-                "description": "北京最潮的购物娱乐区，体验多元文化氛围。"
-              }
-            ]
-          }
+        destination: "北京",
+        startDate: "2025-08-10",
+        endDate: "2025-08-15",
+        travelers: 2,
+        budget: 8000,
+        travelStyle: "cultural",
+        status: "confirmed",
+        highlights: ["故宫", "长城", "颐和园"],
+        // 演示数据：正式环境由 Agent 生成；days 可为 ref-only，需与 PG 向量库 id 一致
+        days: [],
+        recommendations: [
+          { name: "天坛", type: "文化景点" },
+          { name: "国家大剧院", type: "文化场馆" },
+          { name: "北海公园", type: "公园" },
         ],
-        "recommendations": [
-          { "name": "天坛", "type": "文化景点" },
-          { "name": "国家大剧院", "type": "文化场馆" },
-          { "name": "鸟巢国家体育场", "type": "体育场馆" },
-          { "name": "北海公园", "type": "公园" },
-          { "name": "中华民族园", "type": "文化体验" }
-        ],
-        "practicalInfo": {
-          "transportation": [
-            { "name": "北京地铁一卡通", "cost": 150, "icon": "Train" },
-            { "name": "机场快轨", "cost": 300, "icon": "Train" }
+        practicalInfo: {
+          transportation: [
+            { name: "北京地铁一卡通", cost: 150, icon: "Train" },
+            { name: "机场快轨", cost: 300, icon: "Train" },
           ],
-          "accommodation": [
-            { "name": "北京王府井希尔顿酒店", "cost": 1200, "icon": "Hotel" },
-            { "name": "北京和平饭店", "cost": 900, "icon": "Hotel" }
+          accommodation: [
+            { name: "北京王府井希尔顿酒店", cost: 1200, icon: "Hotel" },
+            { name: "北京和平饭店", cost: 900, icon: "Hotel" },
           ],
-          "tips": [
+          tips: [
             "北京夏季炎热，注意防晒和补水",
-            "部分景点人流密集，建议提前预约门票",
-            "北京市内交通便利，推荐使用地铁和共享单车",
-            "注意遵守公共场所的文明礼仪",
-            "尽量避免高峰时段乘坐公共交通"
-          ]
+            "部分景点需提前预约门票",
+            "市内推荐地铁与共享单车",
+          ],
         },
-        "createdAt": "2025-05-01T00:00:00Z",
-        "updatedAt": "2025-05-02T00:00:00Z"
-      }
+        createdAt: "2025-05-01T00:00:00Z",
+        updatedAt: "2025-05-02T00:00:00Z",
+      },
       
     ]
 
@@ -485,190 +358,190 @@ export async function initDatabase() {
 
     await users.insertMany(initialUsers)
 
-    const initialData: Recomendation[] = [
-      {
-        id: 1,
-        name: "东京塔",
-        location: "东京, 日本",
-        rating: 4.7,
-        type: "观景台",
-        description: "东京的标志性建筑，可俯瞰整个城市",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 2,
-        name: "巴黎铁塔",
-        location: "巴黎, 法国",
-        rating: 4.8,
-        type: "观景台",
-        description: "法国最著名的地标建筑",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 3,
-        name: "大峡谷",
-        location: "亚利桑那, 美国",
-        rating: 4.9,
-        type: "自然景观",
-        description: "世界七大自然奇观之一",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 4,
-        name: "故宫",
-        location: "北京, 中国",
-        rating: 4.8,
-        type: "历史建筑",
-        description: "中国明清两代的皇家宫殿",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 5,
-        name: "大英博物馆",
-        location: "伦敦, 英国",
-        rating: 4.7,
-        type: "博物馆",
-        description: "世界上历史最悠久的博物馆之一",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 6,
-        name: "悉尼歌剧院",
-        location: "悉尼, 澳大利亚",
-        rating: 4.6,
-        type: "建筑",
-        description: "世界著名的表演艺术中心",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 7,
-        name: "中目黑樱花道",
-        location: "东京, 日本",
-        rating: 4.5,
-        type: "自然景观",
-        description: "春季樱花盛开的绝美步道",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 8,
-        name: "蒙马特高地",
-        location: "巴黎, 法国",
-        rating: 4.4,
-        type: "文化区",
-        description: "艺术家聚集的浪漫街区",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 9,
-        name: "798艺术区",
-        location: "北京, 中国",
-        rating: 4.3,
-        type: "艺术区",
-        description: "当代艺术和创意产业聚集地",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 10,
-        name: "布鲁克林高线公园",
-        location: "纽约, 美国",
-        rating: 4.4,
-        type: "公园",
-        description: "废弃铁路改造的空中花园",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 11,
-        name: "诺丁山",
-        location: "伦敦, 英国",
-        rating: 4.2,
-        type: "街区",
-        description: "色彩缤纷的维多利亚式房屋街区",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 12,
-        name: "邦迪海滩",
-        location: "悉尼, 澳大利亚",
-        rating: 4.6,
-        type: "海滩",
-        description: "世界著名的冲浪海滩",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 13,
-        name: "teamLab无界",
-        location: "东京, 日本",
-        rating: 4.9,
-        type: "艺术展览",
-        description: "沉浸式数字艺术体验",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 14,
-        name: "卢浮宫",
-        location: "巴黎, 法国",
-        rating: 4.8,
-        type: "博物馆",
-        description: "世界最大的艺术博物馆",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 15,
-        name: "天坛",
-        location: "北京, 中国",
-        rating: 4.7,
-        type: "历史建筑",
-        description: "明清皇帝祭天的场所",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 16,
-        name: "中央公园",
-        location: "纽约, 美国",
-        rating: 4.6,
-        type: "公园",
-        description: "曼哈顿的绿色心脏",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 17,
-        name: "泰特现代美术馆",
-        location: "伦敦, 英国",
-        rating: 4.5,
-        type: "博物馆",
-        description: "世界领先的现代艺术博物馆",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-      {
-        id: 18,
-        name: "皇家植物园",
-        location: "悉尼, 澳大利亚",
-        rating: 4.4,
-        type: "公园",
-        description: "澳大利亚最古老的植物园",
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        likes: 0,
-      },
-    ]
+    // const initialData: Recomendation[] = [
+    //   {
+    //     id: 1,
+    //     name: "东京塔",
+    //     location: "东京, 日本",
+    //     rating: 4.7,
+    //     type: "观景台",
+    //     description: "东京的标志性建筑，可俯瞰整个城市",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 2,
+    //     name: "巴黎铁塔",
+    //     location: "巴黎, 法国",
+    //     rating: 4.8,
+    //     type: "观景台",
+    //     description: "法国最著名的地标建筑",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 3,
+    //     name: "大峡谷",
+    //     location: "亚利桑那, 美国",
+    //     rating: 4.9,
+    //     type: "自然景观",
+    //     description: "世界七大自然奇观之一",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 4,
+    //     name: "故宫",
+    //     location: "北京, 中国",
+    //     rating: 4.8,
+    //     type: "历史建筑",
+    //     description: "中国明清两代的皇家宫殿",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 5,
+    //     name: "大英博物馆",
+    //     location: "伦敦, 英国",
+    //     rating: 4.7,
+    //     type: "博物馆",
+    //     description: "世界上历史最悠久的博物馆之一",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 6,
+    //     name: "悉尼歌剧院",
+    //     location: "悉尼, 澳大利亚",
+    //     rating: 4.6,
+    //     type: "建筑",
+    //     description: "世界著名的表演艺术中心",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 7,
+    //     name: "中目黑樱花道",
+    //     location: "东京, 日本",
+    //     rating: 4.5,
+    //     type: "自然景观",
+    //     description: "春季樱花盛开的绝美步道",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 8,
+    //     name: "蒙马特高地",
+    //     location: "巴黎, 法国",
+    //     rating: 4.4,
+    //     type: "文化区",
+    //     description: "艺术家聚集的浪漫街区",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 9,
+    //     name: "798艺术区",
+    //     location: "北京, 中国",
+    //     rating: 4.3,
+    //     type: "艺术区",
+    //     description: "当代艺术和创意产业聚集地",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 10,
+    //     name: "布鲁克林高线公园",
+    //     location: "纽约, 美国",
+    //     rating: 4.4,
+    //     type: "公园",
+    //     description: "废弃铁路改造的空中花园",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 11,
+    //     name: "诺丁山",
+    //     location: "伦敦, 英国",
+    //     rating: 4.2,
+    //     type: "街区",
+    //     description: "色彩缤纷的维多利亚式房屋街区",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 12,
+    //     name: "邦迪海滩",
+    //     location: "悉尼, 澳大利亚",
+    //     rating: 4.6,
+    //     type: "海滩",
+    //     description: "世界著名的冲浪海滩",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 13,
+    //     name: "teamLab无界",
+    //     location: "东京, 日本",
+    //     rating: 4.9,
+    //     type: "艺术展览",
+    //     description: "沉浸式数字艺术体验",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 14,
+    //     name: "卢浮宫",
+    //     location: "巴黎, 法国",
+    //     rating: 4.8,
+    //     type: "博物馆",
+    //     description: "世界最大的艺术博物馆",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 15,
+    //     name: "天坛",
+    //     location: "北京, 中国",
+    //     rating: 4.7,
+    //     type: "历史建筑",
+    //     description: "明清皇帝祭天的场所",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 16,
+    //     name: "中央公园",
+    //     location: "纽约, 美国",
+    //     rating: 4.6,
+    //     type: "公园",
+    //     description: "曼哈顿的绿色心脏",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 17,
+    //     name: "泰特现代美术馆",
+    //     location: "伦敦, 英国",
+    //     rating: 4.5,
+    //     type: "博物馆",
+    //     description: "世界领先的现代艺术博物馆",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    //   {
+    //     id: 18,
+    //     name: "皇家植物园",
+    //     location: "悉尼, 澳大利亚",
+    //     rating: 4.4,
+    //     type: "公园",
+    //     description: "澳大利亚最古老的植物园",
+    //     imageUrl: "/placeholder.svg?height=200&width=300",
+    //     likes: 0,
+    //   },
+    // ]
 
-    await attractions.insertMany(initialData)
+    // await attractions.insertMany(initialData)
 
     const initialBlogs: TravelBlog[] = [
       {

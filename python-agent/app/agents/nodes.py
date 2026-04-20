@@ -527,6 +527,18 @@ async def writer_agent(state: AgentState) -> AgentState:
 
     activity_ref_backup = _backup_activity_extras(draft.get("days", []))
 
+    def _strip_redundant_text_if_ref(days_src: List[Dict[str, Any]]) -> None:
+        """Mongo 侧 ref 活动只存 time/type/ref（及 priceYuan），不落 title/description/location。"""
+        for day in days_src or []:
+            for act in day.get("activities") or []:
+                ref = act.get("ref")
+                if not isinstance(ref, dict):
+                    continue
+                if ref.get("attractionId") or ref.get("hotelId") or ref.get("restaurantId"):
+                    act.pop("title", None)
+                    act.pop("description", None)
+                    act.pop("location", None)
+
     # 用于 Writer 提示词的预算档次说明
     budget_tier = (
         "经济型（实惠餐厅、公共交通、平价景点）" if int(req.get("budget", 10000)) < 5000
@@ -541,10 +553,11 @@ async def writer_agent(state: AgentState) -> AgentState:
         "- 活动描述中提及的餐厅、场所必须与该消费档次相符\n"
         "- 不要在描述中出现与预算不符的高档场所（如米其林餐厅）或过于低端的选择\n"
         "- 餐厅描述应包含大致人均消费参考\n"
-        "请基于提供的行程草稿，优化每个活动的 title 和 description，使其更加生动具体、符合旅行风格。"
-        "每个 activity 若含 ref 对象（attractionId / hotelId），必须原样保留，不得删除或修改。"
-        "严格保持 JSON 结构不变，不要增减字段，不要添加任何解释文字。"
-        "只输出合法的 JSON 对象。"
+        "请基于提供的行程草稿，优化「无 ref」活动的 title 和 description，使其更加生动具体、符合旅行风格。\n"
+        "【重要】若某 activity 含 ref 且含 attractionId / hotelId / restaurantId："
+        "不要输出 title、description、location 字段，只保留 time、type、ref（及已有 priceYuan）。\n"
+        "每个 activity 的 ref 对象必须原样保留，不得删除或修改 id。\n"
+        "严格保持 JSON 结构，不要添加解释文字。只输出合法的 JSON 对象。"
     )
     # 只传递需要润色的核心部分，减少 token 消耗
     llm_input = {
@@ -589,13 +602,16 @@ async def writer_agent(state: AgentState) -> AgentState:
         logger.warning("writer_agent LLM 润色失败，使用草稿: %r", exc)
         final_trip = draft
 
-    # 最终兜底：保证 description 为字符串，避免 response_model 校验失败
+    _strip_redundant_text_if_ref(final_trip.get("days", []))
+
+    # 兜底：无 ref 的活动若 description 异常，规范为字符串（有 ref 的可省略 description）
     for day in final_trip.get("days", []):
         for act in day.get("activities", []):
-            if isinstance(act.get("description"), list):
-                act["description"] = "，".join(str(x) for x in act["description"])
-            elif not isinstance(act.get("description"), str):
-                act["description"] = str(act.get("description", ""))
+            desc = act.get("description")
+            if isinstance(desc, list):
+                act["description"] = "，".join(str(x) for x in desc)
+            elif desc is not None and not isinstance(desc, str):
+                act["description"] = str(desc)
 
     logger.info("writer_agent 完成: days=%d", len(final_trip.get("days", [])))
     return {"final_trip": final_trip}

@@ -6,13 +6,21 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
-import { Share2, Heart, Download, MapPin, Clock, Utensils, Train, Hotel, Loader2 } from "lucide-react"
+import { Share2, Heart, Download, MapPin, Train, Hotel, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { tripAPI } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { TripRouteMap } from "@/components/trip-route-map"
-import type { TripActivityBase } from "@/lib/types/trip"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { formatTripActivityType, type TripActivityBase } from "@/lib/types/trip"
 
 interface TripWithLocations {
   destination: string
@@ -86,6 +94,19 @@ const TRAVEL_STYLE_META: Record<string, { label: string; description: string }> 
 
 function getTravelStyleMeta(style: string) {
   return TRAVEL_STYLE_META[style] ?? { label: style, description: "" }
+}
+
+function formatActivityCoord(c?: { lat: number; lng: number }): string {
+  if (!c || typeof c.lat !== "number" || typeof c.lng !== "number") return "—"
+  return `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`
+}
+
+function formatRefId(ref?: TripActivityBase["ref"]): string {
+  if (!ref) return "—"
+  if (ref.attractionId) return ref.attractionId
+  if (ref.restaurantId) return ref.restaurantId
+  if (ref.hotelId) return ref.hotelId
+  return "—"
 }
 
 function safeParseTrip(raw: string | null): Trip | null {
@@ -258,6 +279,19 @@ export default function TripResultPage() {
     )
   }
 
+  const itineraryDays =
+    tripWithLocations?.days && tripWithLocations.days.length > 0 ? tripWithLocations.days : trip.days
+
+  const hasMapCoords =
+    !!tripWithLocations?.days?.some((d) =>
+      (d.activities ?? []).some(
+        (a) =>
+          a.coordinate &&
+          typeof (a.coordinate as { lat?: number }).lat === "number" &&
+          typeof (a.coordinate as { lng?: number }).lng === "number",
+      ),
+    )
+
   return (
     <div className="w-full py-8">
       <div className="max-w-4xl mx-auto">
@@ -343,12 +377,12 @@ export default function TripResultPage() {
           <TabsContent value="itinerary">
             <Card>
               <CardHeader>
-                <CardTitle>{trip.days.length} 天行程安排</CardTitle>
+                <CardTitle>{itineraryDays.length} 天行程安排</CardTitle>
                 <CardDescription>根据您的偏好生成的详细行程</CardDescription>
               </CardHeader>
               <CardContent>
                 <Accordion type="single" collapsible className="w-full">
-                  {trip.days.map((day) => (
+                  {itineraryDays.map((day) => (
                     <AccordionItem key={day.day} value={`day-${day.day}`}>
                       <AccordionTrigger>
                         <div className="flex items-center">
@@ -359,18 +393,54 @@ export default function TripResultPage() {
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
-                        <div className="space-y-6">
-                          {day.activities.map((activity, index) => (
-                            <DayActivity
-                              key={index}
-                              time={activity.time}
-                              title={activity.title}
-                              type={activity.type}
-                              description={activity.description}
-                              priceYuan={activity.priceYuan}
-                            />
-                          ))}
-                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          坐标为 GCJ-02（与高德一致），由 PG 关联 ref 与路径规划接口补全。
+                        </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[120px] whitespace-nowrap">时间</TableHead>
+                              <TableHead className="min-w-[140px]">地点</TableHead>
+                              <TableHead className="w-[100px]">类型</TableHead>
+                              <TableHead className="w-[100px]">POI ID</TableHead>
+                              <TableHead className="min-w-[150px] whitespace-nowrap">经纬度</TableHead>
+                              <TableHead className="min-w-[200px]">说明</TableHead>
+                              <TableHead className="w-[72px] text-right">人均</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {day.activities.map((activity, index) => (
+                              <TableRow key={index}>
+                                <TableCell className="align-top text-muted-foreground whitespace-nowrap">
+                                  {activity.time}
+                                </TableCell>
+                                <TableCell className="align-top font-medium">
+                                  {activity.title ?? "—"}
+                                  {activity.location ? (
+                                    <span className="block text-xs font-normal text-muted-foreground mt-1">
+                                      {activity.location}
+                                    </span>
+                                  ) : null}
+                                </TableCell>
+                                <TableCell className="align-top text-xs">
+                                  {formatTripActivityType(activity.type)}
+                                </TableCell>
+                                <TableCell className="align-top font-mono text-xs text-muted-foreground">
+                                  {formatRefId(activity.ref)}
+                                </TableCell>
+                                <TableCell className="align-top font-mono text-xs">
+                                  {formatActivityCoord(activity.coordinate)}
+                                </TableCell>
+                                <TableCell className="align-top text-muted-foreground text-xs max-w-[280px]">
+                                  {activity.description ?? "—"}
+                                </TableCell>
+                                <TableCell className="align-top text-right whitespace-nowrap">
+                                  {activity.priceYuan != null ? `¥${activity.priceYuan}` : "—"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                         <div className="mt-4 flex justify-end">
                           <Button variant="outline" size="sm" asChild>
                             <Link href={`/trip/day/${day.day}?id=${trip.id}`}>查看详情</Link>
@@ -403,7 +473,7 @@ export default function TripResultPage() {
                   </div>
                 </CardContent>
               </Card>
-            ) : tripWithLocations && tripWithLocations.allLocations.length > 0 ? (
+            ) : tripWithLocations && hasMapCoords ? (
               <TripRouteMap
                 destination={tripWithLocations.destination}
                 days={tripWithLocations.days}
@@ -422,9 +492,9 @@ export default function TripResultPage() {
                   <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
                     <div className="text-center">
                       <MapPin className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-50" />
-                      <p className="text-muted-foreground">暂无地点信息</p>
+                      <p className="text-muted-foreground">暂无坐标数据</p>
                       <p className="text-sm text-muted-foreground mt-2">
-                        无法获取活动地点的坐标信息
+                        请确认 Python Agent 已运行且 PG 中 POI 含经纬度
                       </p>
                     </div>
                   </div>
@@ -590,59 +660,6 @@ export default function TripResultPage() {
             </Button>
           </CardFooter>
         </Card>
-      </div>
-    </div>
-  )
-}
-
-function DayActivity({
-  time,
-  title,
-  type,
-  description,
-  priceYuan,
-}: {
-  time: string
-  title: string
-  type: string
-  description: string
-  priceYuan?: number
-}) {
-  const getIcon = () => {
-    switch (type) {
-      case "景点":
-        return <MapPin className="h-5 w-5" />
-      case "餐厅":
-        return <Utensils className="h-5 w-5" />
-      case "购物":
-        return <MapPin className="h-5 w-5" />
-      default:
-        return <MapPin className="h-5 w-5" />
-    }
-  }
-
-  return (
-    <div className="flex gap-4">
-      <div className="min-w-[100px] text-sm text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4" />
-          <span>{time}</span>
-        </div>
-      </div>
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="p-1.5 rounded-full bg-primary/10 text-primary">{getIcon()}</div>
-          <h4 className="font-medium">{title}</h4>
-          <div className="ml-auto flex items-center gap-1.5">
-            {priceYuan && (
-              <Badge variant="secondary" className="text-xs">
-                人均 ¥{priceYuan}
-              </Badge>
-            )}
-            <Badge variant="outline">{type}</Badge>
-          </div>
-        </div>
-        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
     </div>
   )

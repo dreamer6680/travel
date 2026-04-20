@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { MapPin, Route, Clock, Utensils, ShoppingBag, Camera, Trees, BookOpen, Coffee } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { ActivityRef } from "@/lib/types/trip"
+import { formatTripActivityType, type ActivityRef } from "@/lib/types/trip"
 
 interface Coordinate {
   lat: number
@@ -15,9 +15,9 @@ interface Coordinate {
 
 interface ActivityWithLocation {
   time: string
-  title: string
+  title?: string
   type: string
-  description: string
+  description?: string
   location?: string
   ref?: ActivityRef
   coordinate?: Coordinate
@@ -65,9 +65,16 @@ const DAY_COLORS = [
 ]
 
 function getActivityIcon(type: string) {
-  if (type.includes("餐厅") || type.includes("美食")) return <Utensils className="h-3.5 w-3.5" />
+  const t = type.toLowerCase()
+  if (t === "restaurant" || type.includes("餐厅") || type.includes("美食")) {
+    return <Utensils className="h-3.5 w-3.5" />
+  }
+  if (t === "hotel" || type.includes("酒店") || type.includes("住宿")) {
+    return <MapPin className="h-3.5 w-3.5" />
+  }
+  if (t === "recommendation") return <Camera className="h-3.5 w-3.5" />
+  if (t === "others" || type.includes("购物")) return <ShoppingBag className="h-3.5 w-3.5" />
   if (type.includes("咖啡")) return <Coffee className="h-3.5 w-3.5" />
-  if (type.includes("购物")) return <ShoppingBag className="h-3.5 w-3.5" />
   if (type.includes("公园") || type.includes("自然")) return <Trees className="h-3.5 w-3.5" />
   if (type.includes("博物馆") || type.includes("文化")) return <BookOpen className="h-3.5 w-3.5" />
   return <Camera className="h-3.5 w-3.5" />
@@ -136,7 +143,7 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
         idx++
         return {
           position: a.coordinate!,
-          title: a.title,
+          title: a.title ?? "地点",
           content: `${a.time}`,
           index: idx,
           color: dayColor,
@@ -144,6 +151,16 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
         }
       })
   }, [currentDay, dayColor])
+
+  /** 当天活动顺序下的有效坐标，用于 AMap.Driving 一条驾车线（起点→途经点→终点） */
+  const drivingRoutePoints = useMemo(() => {
+    if (!currentDay) return undefined
+    const pts: Coordinate[] = []
+    for (const a of currentDay.activities) {
+      if (isValidCoord(a.coordinate)) pts.push(a.coordinate)
+    }
+    return pts.length >= 2 ? pts : undefined
+  }, [currentDay])
 
   // 生成路线：优先使用高德 API 返回的真实路径，否则降级为直线
   const polylines = useMemo(() => {
@@ -267,6 +284,8 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
             center={mapCenter}
             markers={markers}
             polylines={polylines}
+            drivingRoutePoints={drivingRoutePoints}
+            routeStrokeColor={dayColor}
             height={mapHeight}
             className="w-full rounded-none"
             activeIndex={activeMarkerIndex}
@@ -339,7 +358,7 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
                         </span>
                         <Badge variant="outline" className="text-[10px] h-4 px-1.5 flex items-center gap-0.5">
                           {getActivityIcon(act.type)}
-                          {act.type}
+                          {formatTripActivityType(act.type)}
                         </Badge>
                         {hasCoord && (
                           <MapPin className={cn("h-3 w-3 ml-auto flex-shrink-0",
@@ -350,7 +369,7 @@ export function TripRouteMap({ destination, days, allLocations, className = "", 
                       <p className={cn(
                         "text-sm font-medium mt-0.5 truncate",
                         isActive && "text-primary"
-                      )}>{act.title}</p>
+                      )}>{act.title ?? "地点"}</p>
                       {act.location && act.location !== destination && (
                         <p className="text-[11px] text-muted-foreground flex items-center gap-0.5 mt-0.5 truncate">
                           <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
