@@ -17,8 +17,12 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files
+.env
 .env.local
 python-agent/.env
+
+# volume 备份（本地大文件，不提交）
+deploy/volume-backups/
 
 # vercel
 .vercel

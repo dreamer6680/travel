@@ -30,6 +30,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // 生产构建输出独立目录，使 Docker 镜像体积从 ~1GB 降至 ~200MB
+  output: "standalone",
   // LocatorJS（Next.js 15+）：与官方文档一致
   // Turbopack：https://www.locatorjs.com/install/react
   turbopack: {
