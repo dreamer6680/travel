@@ -49,7 +49,7 @@ cd ~/travel
 ### 1.3 服务器配置环境变量
 
 ```bash
-cp deploy/.env.server .env
+ca-
 nano .env   # 按照注释填写所有密码、IP、API Key
 ```
 

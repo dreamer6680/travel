@@ -9,6 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/deploy/volume-backups"
 mkdir -p "$OUT"
+HELPER_IMAGE="${BACKUP_HELPER_IMAGE:-mongo:7.0}"
 
 VOLUMES=(mongodb_data postgres_data minio_data redis_data)
 
@@ -25,7 +26,7 @@ for vol in "${VOLUMES[@]}"; do
   docker run --rm \
     -v "${full_name}:/volume_data:ro" \
     -v "${OUT}:/backup" \
-    alpine \
+    "${HELPER_IMAGE}" \
     tar czf "/backup/${vol}.tar.gz" -C /volume_data .
 
   size=$(du -sh "${out_file}" | cut -f1)

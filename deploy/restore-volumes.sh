@@ -9,6 +9,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="${ROOT}/deploy/volume-backups"
+HELPER_IMAGE="${BACKUP_HELPER_IMAGE:-mongo:7.0}"
 
 if [[ ! -d "$BACKUP_DIR" ]]; then
   echo "错误：未找到备份目录 $BACKUP_DIR"
@@ -31,7 +32,7 @@ for vol in "${VOLUMES[@]}"; do
   docker run --rm \
     -v "${full_name}:/volume_data" \
     -v "${BACKUP_DIR}:/backup:ro" \
-    alpine \
+    "${HELPER_IMAGE}" \
     sh -c "rm -rf /volume_data/* /volume_data/..?* /volume_data/.[!.]* 2>/dev/null; tar xzf /backup/${vol}.tar.gz -C /volume_data"
 
   echo "    完成：$full_name"
