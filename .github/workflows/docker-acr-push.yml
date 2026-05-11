@@ -39,6 +39,8 @@ concurrency:
 
 env:
   PLATFORMS: linux/amd64
+  # GitHub 逐步弃用 Node 20 上的 composite actions；以下官方 action 新版本已用 Node 24
+  # 详见 https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 
 jobs:
   build-push:
@@ -47,13 +49,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to ACR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ secrets.ACR_REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
@@ -67,7 +69,7 @@ jobs:
           echo "image=${REG}/${NS}/travel" >> "$GITHUB_OUTPUT"
 
       - name: Build and push travel (Next.js)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -87,7 +89,7 @@ jobs:
           echo "image=${REG}/${NS}/travel-agent" >> "$GITHUB_OUTPUT"
 
       - name: Build and push travel-agent
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./python-agent/Dockerfile
