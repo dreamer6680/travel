@@ -288,7 +288,8 @@ docker compose -f deploy/docker-compose.infra.yml \
 1. 同上再增加 Secrets：`DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH`（项目根目录的绝对路径，如 `/srv/travel` 或 `/root/travel`）。
 2. 在 **Variables**（同一 Settings 页）新建 **`AUTO_DEPLOY_SSH`**，值为 **`true`**。  
    仅在 **push 到 main/master** 且变量为 `true` 时执行部署 Job。  
-3. 服务器需已安装 `docker compose`（v2）。工作流使用 **`sudo docker`** 与 **`--project-directory "$DEPLOY_PATH"`**，不要求 SSH 用户能 `cd` 进目录（避免 `cicd` 无法进入 `/root` 导致 `cd: Permission denied`）。compose 所需变量通过 **`sudo VAR=value docker compose`** 传入，**不要**依赖 `sudo -E`（许多 sudoers 会报 *not allowed to preserve the environment*）。  
+3. 服务器需已安装 `docker compose`（v2）。工作流使用 **`sudo docker`** 与 **`--project-directory "$DEPLOY_PATH"`**，不要求 SSH 用户能 `cd` 进目录（避免 `cicd` 无法进入 `/root` 导致 `cd: Permission denied`）。  
+   **为何不用 `sudo -E` / `sudo VAR=value docker`？** 很多机器的 sudoers 会禁止「保留环境」或「给 docker 单独注入环境变量」，分别报错 *not allowed to preserve the environment* / *not allowed to set the following environment variables*。当前做法是在 **`/tmp` 写临时 env 文件**，用 **`docker compose --env-file`** 读入，**`sudo` 只执行不带额外 env 的 `docker`**，一般可与 `NOPASSWD: /usr/bin/docker` 共存。  
    - 若 SSH 用户为 **`cicd`** 且代码在 **`/root/travel`**：请为该用户配置 **`NOPASSWD` 的 `docker`/`docker compose`**（例如 `sudo visudo` 中 `cicd ALL=(root) NOPASSWD: /usr/bin/docker`，路径以服务器 `which docker` 为准）。  
    - 或把项目放到 **`cicd` 可访问目录**（如 `/srv/travel`）并 `chown`，仍建议保留 `sudo docker` 以便读 root 专属路径下的 `.env` 等（若全部在可访问目录下，也可自行把工作流改回无 `sudo` 的 `docker`）。
 4. `appleboy/ssh-action@v1.2.1` 的 `with` 里**不要**写 `script_stop`（该版本不支持，会报 *Unexpected input*；脚本里已有 `set -euo pipefail`）。

@@ -132,22 +132,22 @@ jobs:
             # 不用 cd 进 DEPLOY_PATH：cicd 无法进入 /root 时 cd 会 Permission denied。
             # 用 sudo + 绝对路径 compose + --project-directory，让 docker 客户端以 root 读 /root/travel（需 cicd NOPASSWD: /usr/bin/docker）。
             echo "$ACR_PASSWORD" | sudo docker login "$ACR_REGISTRY" -u "$ACR_USERNAME" --password-stdin
-            # 不要用 sudo -E：常见 sudoers 禁止 preserve environment。在 docker 前写 VAR=value 即可传入 compose 变量。
-            sudo COMPOSE_PROJECT_NAME=travel \
-              ACR_REGISTRY="$ACR_REGISTRY" \
-              ACR_NAMESPACE="$ACR_NAMESPACE" \
-              APP_TAG=latest \
-              AGENT_TAG=latest \
-              docker compose --project-directory "$DEPLOY_PATH" \
+            # sudoers 若禁止 SETENV，则 sudo -E 与 sudo VAR=value docker 都会失败。改用 /tmp 下临时 env 文件 + compose --env-file，sudo 只跑裸的 docker。
+            DEPLOY_ENV_FILE=$(mktemp /tmp/travel-compose-deploy.XXXXXX.env)
+            trap 'rm -f "$DEPLOY_ENV_FILE"' EXIT
+            {
+              echo "COMPOSE_PROJECT_NAME=travel"
+              echo "ACR_REGISTRY=$ACR_REGISTRY"
+              echo "ACR_NAMESPACE=$ACR_NAMESPACE"
+              echo "APP_TAG=latest"
+              echo "AGENT_TAG=latest"
+            } >"$DEPLOY_ENV_FILE"
+            chmod 600 "$DEPLOY_ENV_FILE"
+            sudo docker compose --env-file "$DEPLOY_ENV_FILE" --project-directory "$DEPLOY_PATH" \
               -f "$DEPLOY_PATH/deploy/docker-compose.infra.yml" \
               -f "$DEPLOY_PATH/deploy/docker-compose.app-acr.yml" \
               pull app python-agent
-            sudo COMPOSE_PROJECT_NAME=travel \
-              ACR_REGISTRY="$ACR_REGISTRY" \
-              ACR_NAMESPACE="$ACR_NAMESPACE" \
-              APP_TAG=latest \
-              AGENT_TAG=latest \
-              docker compose --project-directory "$DEPLOY_PATH" \
+            sudo docker compose --env-file "$DEPLOY_ENV_FILE" --project-directory "$DEPLOY_PATH" \
               -f "$DEPLOY_PATH/deploy/docker-compose.infra.yml" \
               -f "$DEPLOY_PATH/deploy/docker-compose.app-acr.yml" \
               up -d --no-deps app python-agent
