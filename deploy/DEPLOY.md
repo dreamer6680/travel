@@ -315,7 +315,20 @@ sudo docker rm -f travel-app travel-python-agent 2>/dev/null || true
 # 再在项目目录执行 compose pull / up
 ```
 
-工作流已在 `compose up` 前尝试 **kill + rm** 上述容器名；若仍报错，请先 **重启 Docker 服务** 再重跑 Actions。
+工作流已在 `compose up` 前按 **`docker ps -aq --filter name=travel-python-agent`**（及 `travel-app`）批量 **kill + rm**，减少「名字已被占用」类冲突。若仍报错，请先 **重启 Docker 服务** 再重跑 Actions。
+
+**CI 在 pull 之后失败、想自己在机器上启动**：镜像一般已在本地缓存。SSH 登录后进入 `DEPLOY_PATH`，先清冲突再起：
+
+```bash
+for pat in travel-python-agent travel-app; do
+  ids=$(sudo docker ps -aq --filter "name=${pat}" 2>/dev/null || true)
+  [ -n "$ids" ] && echo "$ids" | xargs -r sudo docker rm -f
+done
+sudo docker compose --project-directory /你的/项目根 --env-file /tmp/你的.env \
+  -f deploy/docker-compose.infra.yml -f deploy/docker-compose.app-acr.yml up -d --no-deps app python-agent
+```
+
+（`--env-file` 与变量与 CI 一致即可，或在本机已 `docker login` 且 compose 里镜像 tag 正确时直接 `up`。）
 
 ### 关于 `volume "travel_*" already exists but was not created by Docker Compose`
 
