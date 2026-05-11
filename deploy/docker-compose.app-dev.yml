@@ -6,6 +6,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      pull: false
     container_name: travel-app
     restart: unless-stopped
     ports:
@@ -45,6 +46,7 @@ services:
     build:
       context: ..
       dockerfile: python-agent/Dockerfile
+      pull: false
     container_name: travel-python-agent
     restart: unless-stopped
     ports:
