@@ -1,7 +1,9 @@
 # ── 阶段 1：安装依赖 ────────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
-RUN corepack enable
+# pnpm 11+ 需要 Node 22+；Node 20 下须固定 pnpm 9.x（否则 ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite）
+RUN corepack enable \
+ && corepack prepare pnpm@9.15.9 --activate
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -9,7 +11,8 @@ RUN pnpm install --frozen-lockfile
 # ── 阶段 2：构建 ─────────────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable \
+ && corepack prepare pnpm@9.15.9 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

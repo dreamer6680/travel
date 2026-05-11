@@ -50,6 +50,14 @@ const nextConfig = {
   // Webpack：官方示例为 rules.push；Next 的 oneOf 需用 unshiftLoader 插到最前才稳定生效
   // https://www.locatorjs.com/install/react
   webpack: (config, { isServer, dev }) => {
+    // 生产构建不打包 Locator（否则 @locator/runtime 与 solid-js 1.9+ 触发大量编译告警）
+    if (!dev) {
+      const stub = path.resolve(__dirname, "components/locator-runtime-loader.stub.tsx")
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        "@/components/locator-runtime-loader": stub,
+      }
+    }
     // @locator/runtime 依赖 solid-js/web 的 setStyleProperty（solid-js 1.9+ 已移除）→ 用 polyfill 补全
     if (!isServer) {
       const solidWebBrowser = resolveSolidWebBrowserPath()

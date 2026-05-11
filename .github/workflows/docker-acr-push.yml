@@ -1,0 +1,139 @@
+# 构建 linux/amd64 镜像并推送到阿里云 ACR。
+#
+# 在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置：
+#   ACR_REGISTRY   例: crpi-xxxx.cn-hangzhou.personal.cr.aliyuncs.com（不要 https://）
+#   ACR_NAMESPACE  例: datafollow
+#   ACR_USERNAME   ACR 登录用户名（控制台「访问凭证」）
+#   ACR_PASSWORD   ACR 登录密码
+#
+# 可选：推送成功后 SSH 到服务器 pull + 重启 app / agent。需配置 Secrets（见下），并在
+# Settings → Secrets and variables → Actions → Variables 新建：
+#   AUTO_DEPLOY_SSH  值为 true 时才跑部署 Job（GitHub 不允许在 job 的 if 里读 secrets）
+#
+#   DEPLOY_HOST      服务器 IP 或域名
+#   DEPLOY_USER      ssh 用户，如 root 或 ubuntu
+#   DEPLOY_SSH_KEY   私钥全文（-----BEGIN ... PRIVATE KEY-----）
+#   DEPLOY_PATH      服务器上项目路径，如 /root/travel
+#
+# 触发：推送到 main / master；或 Actions 里手动 Run workflow。
+# 需要 feat/* 等分支也自动构建时，在 on.push.branches 中追加分支名。
+
+name: Docker build & push ACR
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      deploy_to_server:
+        description: "构建完成后是否 SSH 部署（需已配置 DEPLOY_* Secrets）"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: docker-acr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLATFORMS: linux/amd64
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Docker meta (travel)
+        id: meta-app
+        run: |
+          REG="${{ secrets.ACR_REGISTRY }}"
+          NS="${{ secrets.ACR_NAMESPACE }}"
+          echo "image=${REG}/${NS}/travel" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push travel (Next.js)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: |
+            ${{ steps.meta-app.outputs.image }}:latest
+            ${{ steps.meta-app.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Docker meta (travel-agent)
+        id: meta-agent
+        run: |
+          REG="${{ secrets.ACR_REGISTRY }}"
+          NS="${{ secrets.ACR_NAMESPACE }}"
+          echo "image=${REG}/${NS}/travel-agent" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push travel-agent
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./python-agent/Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: |
+            ${{ steps.meta-agent.outputs.image }}:latest
+            ${{ steps.meta-agent.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-ssh:
+    needs: build-push
+    runs-on: ubuntu-latest
+    if: |
+      (
+        github.event_name == 'push' &&
+        vars.AUTO_DEPLOY_SSH == 'true' &&
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      ) || (
+        github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.deploy_to_server == true || github.event.inputs.deploy_to_server == 'true')
+      )
+    steps:
+      - name: Pull images and restart app on server
+        uses: appleboy/ssh-action@v1.2.1
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: ACR_REGISTRY,ACR_NAMESPACE,ACR_USERNAME,ACR_PASSWORD,DEPLOY_PATH
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "$DEPLOY_PATH"
+            echo "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" -u "$ACR_USERNAME" --password-stdin
+            export COMPOSE_PROJECT_NAME=travel
+            export ACR_REGISTRY="$ACR_REGISTRY"
+            export ACR_NAMESPACE="$ACR_NAMESPACE"
+            export APP_TAG=latest
+            export AGENT_TAG=latest
+            docker compose -f deploy/docker-compose.infra.yml -f deploy/docker-compose.app-acr.yml pull app python-agent
+            docker compose -f deploy/docker-compose.infra.yml -f deploy/docker-compose.app-acr.yml up -d --no-deps app python-agent

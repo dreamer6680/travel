@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { LoadingScene } from '@/features/video/detail/components/VideoGeneratingArtifact'
 
 const DEMO_TITLES = [
   'Scene 1 - Opening',
@@ -9,6 +8,22 @@ const DEMO_TITLES = [
   'Scene 3 - Solution',
   'Scene 4 - CTA',
 ]
+
+/** 本地占位：原 `@/features/video/.../VideoGeneratingArtifact` 未纳入本仓库 */
+function LoadingScene({ title }: { title?: string }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {title ? (
+        <div className="border-b border-border px-4 py-2 text-sm font-medium text-foreground">{title}</div>
+      ) : null}
+      <div className="space-y-3 p-4">
+        <div className="h-32 w-full animate-pulse rounded-lg bg-muted" />
+        <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+      </div>
+    </div>
+  )
+}
 
 export default function VideoGeneratingArtifactLoadingPage() {
   const [showTitle, setShowTitle] = useState(true)
@@ -18,7 +33,7 @@ export default function VideoGeneratingArtifactLoadingPage() {
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold text-primary">Video Generating Shimmer Test</h1>
         <p className="text-sm text-muted-foreground">
-          Isolated preview for the `LoadingScene` shimmer used in video generation artifacts.
+          占位骨架屏（原业务组件未在本仓库）；用于预览卡片加载态布局。
         </p>
       </div>
 

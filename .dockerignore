@@ -2,6 +2,17 @@
 .git
 .gitignore
 
+# 离线镜像 / 备份包（动辄数 GB，切勿打进 build context）
+*.tar
+*.tar.gz
+deploy/volume-backups/
+
+# 密钥（勿复制进镜像）
+*.pem
+ssh.pem
+id_rsa
+id_ed25519
+
 # 依赖（容器内重新安装）
 node_modules
 python-agent/.venv

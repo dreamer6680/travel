@@ -262,3 +262,32 @@ docker compose -f deploy/docker-compose.infra.yml \
 | `11434` | Ollama（建议不对外暴露） |
 
 > 建议在云服务器安全组只开放 `3000`、`9000`、`9001`，其余端口仅内网访问。
+
+---
+
+## 六、GitHub Actions（自动构建推 ACR + 可选 SSH 部署）
+
+工作流文件：`.github/workflows/docker-acr-push.yml`
+
+### 触发条件
+
+- **推送**到 `main` 或 `master`：构建并推送 `travel:latest` / `travel-agent:latest`（同时打 `:git-sha` 标签便于回滚）。
+- **手动**：Actions → 选择该 workflow → Run workflow；可勾选 **deploy_to_server** 在构建完成后 SSH 部署。
+
+### 必配 Secrets（Repository → Settings → Secrets and variables → Actions）
+
+| Name | 说明 |
+|------|------|
+| `ACR_REGISTRY` | 镜像仓库域名，如 `crpi-xxxx.cn-hangzhou.personal.cr.aliyuncs.com`（不要 `https://`） |
+| `ACR_NAMESPACE` | 命名空间，如 `datafollow` |
+| `ACR_USERNAME` | ACR 登录用户名 |
+| `ACR_PASSWORD` | ACR 登录密码 |
+
+### 可选：推送后自动 SSH 拉镜像并重启 app / agent
+
+1. 同上再增加 Secrets：`DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH`（如 `/root/travel`）。
+2. 在 **Variables**（同一 Settings 页）新建 **`AUTO_DEPLOY_SSH`**，值为 **`true`**。  
+   仅在 **push 到 main/master** 且变量为 `true` 时执行部署 Job。  
+3. 服务器需已安装 `docker compose`，且该用户可无交互执行 `docker`；首次可在服务器执行 `docker login` 验证账号（工作流里也会每次 `docker login`）。
+
+不配 `AUTO_DEPLOY_SSH` 时，只推镜像；服务器仍可按「三、首次部署」手动 `pull` + `up`。
