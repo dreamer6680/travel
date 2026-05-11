@@ -132,16 +132,22 @@ jobs:
             # 不用 cd 进 DEPLOY_PATH：cicd 无法进入 /root 时 cd 会 Permission denied。
             # 用 sudo + 绝对路径 compose + --project-directory，让 docker 客户端以 root 读 /root/travel（需 cicd NOPASSWD: /usr/bin/docker）。
             echo "$ACR_PASSWORD" | sudo docker login "$ACR_REGISTRY" -u "$ACR_USERNAME" --password-stdin
-            export COMPOSE_PROJECT_NAME=travel
-            export ACR_REGISTRY="$ACR_REGISTRY"
-            export ACR_NAMESPACE="$ACR_NAMESPACE"
-            export APP_TAG=latest
-            export AGENT_TAG=latest
-            sudo -E docker compose --project-directory "$DEPLOY_PATH" \
+            # 不要用 sudo -E：常见 sudoers 禁止 preserve environment。在 docker 前写 VAR=value 即可传入 compose 变量。
+            sudo COMPOSE_PROJECT_NAME=travel \
+              ACR_REGISTRY="$ACR_REGISTRY" \
+              ACR_NAMESPACE="$ACR_NAMESPACE" \
+              APP_TAG=latest \
+              AGENT_TAG=latest \
+              docker compose --project-directory "$DEPLOY_PATH" \
               -f "$DEPLOY_PATH/deploy/docker-compose.infra.yml" \
               -f "$DEPLOY_PATH/deploy/docker-compose.app-acr.yml" \
               pull app python-agent
-            sudo -E docker compose --project-directory "$DEPLOY_PATH" \
+            sudo COMPOSE_PROJECT_NAME=travel \
+              ACR_REGISTRY="$ACR_REGISTRY" \
+              ACR_NAMESPACE="$ACR_NAMESPACE" \
+              APP_TAG=latest \
+              AGENT_TAG=latest \
+              docker compose --project-directory "$DEPLOY_PATH" \
               -f "$DEPLOY_PATH/deploy/docker-compose.infra.yml" \
               -f "$DEPLOY_PATH/deploy/docker-compose.app-acr.yml" \
               up -d --no-deps app python-agent
