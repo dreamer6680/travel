@@ -23,7 +23,7 @@ for vol in "${VOLUMES[@]}"; do
   tar_file="${BACKUP_DIR}/${vol}.tar.gz"
   [[ -f "$tar_file" ]] || continue
 
-  full_name="deploy_${vol}"
+  full_name="travel_${vol}"
   echo "==> 恢复 $full_name ..."
 
   # 自动创建 volume（如不存在）
