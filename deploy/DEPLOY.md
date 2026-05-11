@@ -296,3 +296,27 @@ docker compose -f deploy/docker-compose.infra.yml \
 5. 首次可在服务器执行 `docker login` 验证账号（工作流里也会每次 `docker login`）。
 
 不配 `AUTO_DEPLOY_SSH` 时，只推镜像；服务器仍可按「三、首次部署」手动 `pull` + `up`。
+
+### 部署失败：`cannot stop container` / `permission denied`
+
+多为 **Snap 安装的 Docker** 或守护进程状态异常，导致无法停止旧容器。在服务器上执行（按需二选一）：
+
+```bash
+sudo snap restart docker
+# 或 apt 安装的 Docker：
+# sudo systemctl restart docker
+```
+
+然后手动清理再部署：
+
+```bash
+sudo docker kill travel-app travel-python-agent 2>/dev/null || true
+sudo docker rm -f travel-app travel-python-agent 2>/dev/null || true
+# 再在项目目录执行 compose pull / up
+```
+
+工作流已在 `compose up` 前尝试 **kill + rm** 上述容器名；若仍报错，请先 **重启 Docker 服务** 再重跑 Actions。
+
+### 关于 `volume "travel_*" already exists but was not created by Docker Compose`
+
+表示本机已有同名数据卷（例如以前用别的 compose 项目名或手动创建），一般 **可忽略**，数据会继续沿用。若要消除告警，需保证卷由当前 compose 管理（例如统一 `COMPOSE_PROJECT_NAME=travel`），或自行用 `docker volume inspect` 确认后再决定是否删除旧卷（**删卷会丢数据**）。

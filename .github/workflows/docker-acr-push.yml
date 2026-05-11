@@ -147,6 +147,12 @@ jobs:
               -f "$DEPLOY_PATH/deploy/docker-compose.infra.yml" \
               -f "$DEPLOY_PATH/deploy/docker-compose.app-acr.yml" \
               pull app python-agent
+            # compose recreate 会先 stop 旧容器；Snap Docker 等环境下偶发 cannot stop: permission denied。
+            # 先 kill/rm 固定 container_name，让 up 直接建新容器（与 app-acr.yml 中名称一致）。
+            for c in travel-app travel-python-agent; do
+              sudo docker kill "$c" 2>/dev/null || true
+              sudo docker rm -f "$c" 2>/dev/null || true
+            done
             sudo docker compose --env-file "$DEPLOY_ENV_FILE" --project-directory "$DEPLOY_PATH" \
               -f "$DEPLOY_PATH/deploy/docker-compose.infra.yml" \
               -f "$DEPLOY_PATH/deploy/docker-compose.app-acr.yml" \
