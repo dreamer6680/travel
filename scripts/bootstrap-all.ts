@@ -19,6 +19,15 @@ function containerExists(name: string) {
   }
 }
 
+/** 若已有同名容器（含已停止），先拉起，避免 compose 再 create 触发 Conflict */
+function tryStartExisting(name: string) {
+  try {
+    execSync(`docker start "${name}"`, { stdio: "ignore" })
+  } catch {
+    // 不存在时 docker start 会失败，忽略
+  }
+}
+
 function run(cmd: string) {
   console.log(`\n$ ${cmd}`)
   execSync(cmd, { stdio: "inherit" })
@@ -39,6 +48,9 @@ async function main() {
   console.log(
     `参数: districtId=${districtId}, scenicPages=${scenicPages}, hotelPages=${hotelPages}, restaurantPages=${restaurantPages}`
   )
+
+  tryStartExisting("travel-mongodb")
+  tryStartExisting("travel-postgres")
 
   const hasMongo = containerExists("travel-mongodb")
   const hasPostgres = containerExists("travel-postgres")

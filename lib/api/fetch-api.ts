@@ -17,7 +17,9 @@ export function setToken(token: string): void {
   if (typeof window === "undefined") return
   localStorage.setItem("token", token)
   // 同步到 cookie，max-age=7d，供 Next.js middleware 读取
-  document.cookie = `auth-token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`
+  const secure =
+    typeof window !== "undefined" && window.location.protocol === "https:"
+  document.cookie = `auth-token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax${secure ? "; Secure" : ""}`
 }
 
 /**

@@ -5,6 +5,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toaster"
 import LocatorRuntimeLoader from "@/components/locator-runtime-loader"
+import { AuthCookieSync } from "@/components/auth-cookie-sync"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -24,6 +25,7 @@ export default function RootLayout({
       <body className={inter.className}>
         {process.env.NODE_ENV === "development" ? <LocatorRuntimeLoader /> : null}
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <AuthCookieSync />
           {children}
           <Toaster />
         </ThemeProvider>

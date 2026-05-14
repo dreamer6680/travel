@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { appendAuthTokenSetCookie } from "@/lib/auth-cookie"
 import { AuthService } from "@/server/controllers/authService"
 
 const authService = new AuthService()
@@ -25,7 +26,11 @@ export async function POST(request: Request) {
       )
     }
 
-    return NextResponse.json(result, { status: 200 })
+    const res = NextResponse.json(result, { status: 200 })
+    if (result.token && typeof result.token === "string") {
+      appendAuthTokenSetCookie(res, request, result.token)
+    }
+    return res
   } catch (error) {
     console.error("登录失败:", error)
     const errorMessage = error instanceof Error ? error.message : "Unknown error"
