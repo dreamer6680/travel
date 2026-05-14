@@ -9,6 +9,19 @@
 import "./load-env-local"
 import { execSync } from "node:child_process"
 
+function containerExists(name: string) {
+  try {
+    const result = execSync(
+      `docker ps -a --filter "name=${name}" --format "{{.Names}}"`,
+      { encoding: "utf-8" }
+    ).trim()
+
+    return result === name
+  } catch {
+    return false
+  }
+}
+
 function run(cmd: string) {
   console.log(`\n$ ${cmd}`)
   execSync(cmd, { stdio: "inherit" })
@@ -30,7 +43,13 @@ async function main() {
     `参数: districtId=${districtId}, scenicPages=${scenicPages}, hotelPages=${hotelPages}, restaurantPages=${restaurantPages}`
   )
 
-  run("docker compose up -d mongodb postgres")
+  if (!containerExists("travel-mongodb") || !containerExists("travel-postgres")) {
+    run("docker compose up -d mongodb postgres")
+  } else {
+    console.log("✅ mongodb/postgres 已存在，尝试启动")
+    run("docker start travel-mongodb")
+    run("docker start travel-postgres")
+  }
   run("pnpm db:wait")
 
   // 景区
