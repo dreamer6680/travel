@@ -1,3 +1,4 @@
+# Compose 会插值 .env 中的 $VAR；密码/密钥若含字面量 $，请写成 $$（否则会出现 “variable o1 is not set” 类告警）
 services:
   app:
     build:

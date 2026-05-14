@@ -9,14 +9,11 @@
 import "./load-env-local"
 import { execSync } from "node:child_process"
 
+/** 按精确容器名判断是否存在（避免 name= 过滤子串误匹配） */
 function containerExists(name: string) {
   try {
-    const result = execSync(
-      `docker ps -a --filter "name=${name}" --format "{{.Names}}"`,
-      { encoding: "utf-8" }
-    ).trim()
-
-    return result === name
+    execSync(`docker container inspect "${name}"`, { stdio: "ignore" })
+    return true
   } catch {
     return false
   }
@@ -43,12 +40,23 @@ async function main() {
     `参数: districtId=${districtId}, scenicPages=${scenicPages}, hotelPages=${hotelPages}, restaurantPages=${restaurantPages}`
   )
 
-  if (!containerExists("travel-mongodb") || !containerExists("travel-postgres")) {
+  const hasMongo = containerExists("travel-mongodb")
+  const hasPostgres = containerExists("travel-postgres")
+
+  // 不能只跑「缺一个就 up 两个」：已存在的固定 container_name 会报 Conflict
+  if (!hasMongo && !hasPostgres) {
     run("docker compose up -d mongodb postgres")
   } else {
-    console.log("✅ mongodb/postgres 已存在，尝试启动")
-    run("docker start travel-mongodb")
-    run("docker start travel-postgres")
+    if (!hasMongo) {
+      run("docker compose up -d mongodb")
+    } else {
+      run("docker start travel-mongodb")
+    }
+    if (!hasPostgres) {
+      run("docker compose up -d postgres")
+    } else {
+      run("docker start travel-postgres")
+    }
   }
   run("pnpm db:wait")
 

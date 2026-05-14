@@ -18,6 +18,7 @@
     "scrape:hotels": "tsx scripts/scrape-ctrip-hotels.ts 2 --target=200 --maxPages=100 --pageSize=20",
     "scrape:restaurants": "tsx scripts/scrape-ctrip-restaurants.ts 2 --target=200 --maxPages=120",
     "vectorize:pg": "tsx scripts/vectorize-mongo-to-pg.ts",
+    "dedupe:mongo-pg": "tsx scripts/dedupe-mongo-pg.ts",
     "bootstrap:all": "tsx scripts/bootstrap-all.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
