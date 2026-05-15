@@ -41,6 +41,15 @@ class PgVectorStore:
     def _vec_literal(vec: List[float]) -> str:
         return "[" + ",".join(f"{float(x):.8f}" for x in vec) + "]"
 
+    @staticmethod
+    def _parse_vec_literal(value: str | None) -> List[float]:
+        if not value:
+            return []
+        raw = value.strip().strip("[]")
+        if not raw:
+            return []
+        return [float(item) for item in raw.split(",")]
+
     async def search_attractions(
         self, embedding: List[float], limit: int = 20
     ) -> List[Dict[str, Any]]:
@@ -510,6 +519,26 @@ class PgVectorStore:
         """
         async with pool.acquire() as conn:
             await conn.execute(sql, user_id, preference_text, vec)
+
+    async def get_user_preference_embedding(self, user_id: str) -> Dict[str, Any] | None:
+        pool = await self.get_pool()
+        sql = """
+        SELECT preference_text, embedding::text AS embedding
+        FROM user_preference_vectors
+        WHERE user_id = $1
+        LIMIT 1
+        """
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(sql, user_id)
+            if not row:
+                return None
+            return {
+                "preference_text": row["preference_text"],
+                "embedding": self._parse_vec_literal(row["embedding"]),
+            }
+        except asyncpg.UndefinedTableError:
+            return None
 
 
 pg_vector_store = PgVectorStore()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict, List
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,7 @@ from .models import (
 )
 from .services.location_tools import enhance_trip_locations
 from .services.data_sources import data_sources
-from .services.embedding_service import embed_text
+from .services.embedding_service import build_preference_text, embed_text
 from .services.pg_vector_store import pg_vector_store
 from .services.trip_tools import build_candidate_attractions
 
@@ -50,6 +50,64 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _join_preference_values(value: Any) -> str:
+    if isinstance(value, list):
+        return "，".join(str(item) for item in value if item)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _build_profile_preference_text(destination: str, preferences: Any) -> str:
+    normalized_destination = _normalize_recommendation_destination(destination)
+    if not isinstance(preferences, dict):
+        return build_preference_text(
+            destination=normalized_destination,
+            travel_style="balanced",
+            interests="美食，文化，观景",
+            budget=0,
+            travelers=0,
+        )
+
+    profile_parts = [
+        _join_preference_values(preferences.get("interests")),
+        _join_preference_values(preferences.get("favoriteDestinations")),
+        _join_preference_values(preferences.get("seasons")),
+        _join_preference_values(preferences.get("accommodationType")),
+        _join_preference_values(preferences.get("transportationPreference")),
+    ]
+    return build_preference_text(
+        destination=normalized_destination,
+        travel_style=str(preferences.get("travelStyle") or "balanced"),
+        interests="，".join(part for part in profile_parts if part) or "美食，文化，观景",
+        budget=int(preferences.get("budget") or 0),
+        travelers=0,
+    )
+
+
+def _normalize_recommendation_destination(destination: str) -> str:
+    text = (destination or "").strip()
+    if text in {"热门城市", "全部", "全部城市", "推荐"}:
+        return ""
+    return text
+
+
+async def _resolve_recommendation_query(
+    destination: str,
+    user_id: str = "",
+    preferences: Any = None,
+) -> tuple[List[float], str]:
+    if user_id:
+        stored = await pg_vector_store.get_user_preference_embedding(user_id)
+        if stored and stored.get("embedding"):
+            logger.info("AI推荐: 使用用户偏好向量 userId=%s destination=%s", user_id, _normalize_recommendation_destination(destination) or "none")
+            return stored["embedding"], str(stored.get("preference_text") or "")
+
+    preference_text = _build_profile_preference_text(destination, preferences)
+    logger.info("AI推荐: 使用profile偏好文本 destination=%s pref_text=%s", _normalize_recommendation_destination(destination) or "none", preference_text[:120])
+    return await embed_text(preference_text), preference_text
 
 
 @app.get("/healthz")
@@ -126,11 +184,15 @@ async def trip_locations(payload: Dict[str, object]):
     summary="AI 推荐列表",
     description="兼容原有前端推荐页，返回 AI 推荐结构。",
 )
-async def ai_recommendations(destination: str = Query(default="热门城市")):
-    emb = await embed_text(f"目的地:{destination} 兴趣:美食,文化,观景")
-    rows = await data_sources.fetch_recommendations_by_embedding(emb, destination, "美食,文化,观景", 20)
+async def ai_recommendations(
+    destination: str = Query(default=""),
+    userId: str = Query(default=""),
+):
+    normalized_destination = _normalize_recommendation_destination(destination)
+    emb, preference_text = await _resolve_recommendation_query(normalized_destination, userId)
+    rows = await data_sources.fetch_recommendations_by_embedding(emb, normalized_destination, preference_text, 20)
     if not rows:
-        return build_candidate_attractions(destination, "美食,文化,观景")
+        return build_candidate_attractions(normalized_destination or "热门城市", "美食,文化,观景")
     return rows
 
 
@@ -140,11 +202,13 @@ async def ai_recommendations(destination: str = Query(default="热门城市")):
     description="与 GET 语义一致，兼容客户端误用 POST。",
 )
 async def ai_recommendations_post(payload: Dict[str, object]):
-    destination = str(payload.get("destination", "热门城市"))
-    emb = await embed_text(f"目的地:{destination} 兴趣:美食,文化,观景")
-    rows = await data_sources.fetch_recommendations_by_embedding(emb, destination, "美食,文化,观景", 20)
+    destination = _normalize_recommendation_destination(str(payload.get("destination") or ""))
+    user_id = str(payload.get("userId") or "")
+    preferences = payload.get("preferences")
+    emb, preference_text = await _resolve_recommendation_query(destination, user_id, preferences)
+    rows = await data_sources.fetch_recommendations_by_embedding(emb, destination, preference_text, 20)
     if not rows:
-        return build_candidate_attractions(destination, "美食,文化,观景")
+        return build_candidate_attractions(destination or "热门城市", "美食,文化,观景")
     return rows
 
 
@@ -156,7 +220,7 @@ async def ai_recommendations_post(payload: Dict[str, object]):
 async def vectorize_user_preferences(payload: Dict[str, object]):
     user_id = str(payload.get("userId", ""))
     preferences = payload.get("preferences", {})
-    pref_text = str(preferences)
+    pref_text = _build_profile_preference_text("", preferences)
     emb = await embed_text(pref_text)
     try:
         await pg_vector_store.upsert_user_preference_vector(user_id, pref_text, emb)

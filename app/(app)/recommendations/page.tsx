@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Heart, Search, Star, MapPin, Filter, Loader2 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { recommendationAPI } from "@/lib/api"
+import { useUserStore } from "@/lib/store/user-store"
 import Image from "next/image"
 
 // 定义景点类型
@@ -39,6 +40,7 @@ function toDisplayText(value: unknown): string {
 }
 
 export default function RecommendationsPage() {
+  const { isAuthenticated, preferences, fetchPreferences } = useUserStore()
   const [searchQuery, setSearchQuery] = useState("")
   const [favorites, setFavorites] = useState<number[]>([])
   const [selectedType, setSelectedType] = useState("all")
@@ -92,6 +94,10 @@ export default function RecommendationsPage() {
     fetchHiddenGems()
   }, [])
 
+  useEffect(() => {
+    if (isAuthenticated && !preferences) fetchPreferences()
+  }, [fetchPreferences, isAuthenticated, preferences])
+
   // 获取AI推荐
   useEffect(() => {
     async function fetchAIRecommendations() {
@@ -108,7 +114,7 @@ export default function RecommendationsPage() {
     }
 
     fetchAIRecommendations()
-  }, [])
+  }, [preferences])
 
   const toggleFavorite = (id: number) => {
     if (favorites.includes(id)) {

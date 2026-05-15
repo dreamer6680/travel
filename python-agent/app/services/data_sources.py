@@ -12,11 +12,9 @@ class DataSources:
     async def fetch_recommendations_by_embedding(
         self, embedding: List[float], destination: str, interests: str, limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """按目的地过滤 + 向量检索景点，并按综合评分排序。"""
-        raw = await pg_vector_store.search_attractions_by_destination(
-            embedding, destination, max(limit * 3, 40)
-        )
-        return self._rank_rows(raw, destination, interests)[:limit]
+        """用偏好画像向量检索景点；目的地只作为可选排序加分，不做硬过滤。"""
+        raw = await pg_vector_store.search_attractions(embedding, max(limit * 5, 80))
+        return self._rank_rows(raw, self._normalize_destination(destination), interests)[:limit]
 
     async def fetch_hotels_by_embedding(
         self, embedding: List[float], destination: str, limit: int = 20
@@ -78,6 +76,13 @@ class DataSources:
             return score
 
         return sorted(rows, key=_score, reverse=True)
+
+    @staticmethod
+    def _normalize_destination(destination: str) -> str:
+        text = (destination or "").strip()
+        if text in {"热门城市", "全部", "全部城市", "推荐"}:
+            return ""
+        return text
 
 
 data_sources = DataSources()

@@ -84,10 +84,24 @@ async def planner_agent(state: AgentState) -> AgentState:
     2. 构建偏好文本并生成向量
     """
     req = state["request"]
+    user_preferences = req.get("userPreferences")
+    if not isinstance(user_preferences, dict):
+        user_preferences = {}
+
     destination = req.get("destination", "")
-    travel_style = req.get("travelStyle", "balanced")
-    interests = req.get("interests", "")
-    budget = req.get("budget", 10000)
+    travel_style = req.get("travelStyle") or user_preferences.get("travelStyle") or "balanced"
+    profile_interest_parts = [
+        _as_text(user_preferences.get("interests")),
+        _as_text(user_preferences.get("favoriteDestinations")),
+        _as_text(user_preferences.get("seasons")),
+        _as_text(user_preferences.get("accommodationType")),
+        _as_text(user_preferences.get("transportationPreference")),
+    ]
+    profile_interests = "，".join(part for part in profile_interest_parts if part)
+    interests = "，".join(
+        part for part in (_as_text(req.get("interests", "")), profile_interests) if part
+    )
+    budget = req.get("budget") or user_preferences.get("budget") or 10000
     travelers = req.get("travelers", 2)
     start_date = req.get("startDate", "")
     end_date = req.get("endDate", "")

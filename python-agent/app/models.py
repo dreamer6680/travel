@@ -23,6 +23,8 @@ class TripGenerateRequest(BaseModel):
     budget: int = 10000
     travelStyle: str = "balanced"
     interests: str = ""
+    userId: Optional[str] = None
+    userPreferences: Optional[Dict[str, Any]] = None
 
 
 class ActivityModel(BaseModel):

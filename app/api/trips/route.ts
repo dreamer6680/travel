@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     // 2. 在后台异步调用 Python Agent（不 await，不阻塞响应）
     Promise.resolve().then(async () => {
       try {
-        const result = await tripService.generateWithAI(tripData)
+        const result = await tripService.generateWithAI(tripData, userId)
         await tripService.finalizeTripGeneration(tripId, result)
         await notifSvc.create({
           userId,

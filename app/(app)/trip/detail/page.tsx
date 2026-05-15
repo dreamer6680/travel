@@ -152,7 +152,7 @@ export default function TripDetailPage() {
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-3xl font-bold">
-                {trip.destination} {tripDays} 日游
+                {trip.destination} {(tripDays ?? 0) + 1} 日游
               </h1>
               <Badge className={STATUS_COLORS[trip.status]}>
                 {STATUS_LABELS[trip.status] ?? trip.status}

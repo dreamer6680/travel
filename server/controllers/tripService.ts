@@ -1,8 +1,11 @@
 import clientPromise from "@/lib/db"
 import { randomUUID } from "crypto"
 import { proxyJsonToPythonAgent } from "@/server/python-agent-client"
+import { UserService } from "./userService"
 
 export class TripService {
+  private userService = new UserService()
+
   private col() {
     return clientPromise.then((c) => c.db("trip").collection("Trips"))
   }
@@ -43,10 +46,23 @@ export class TripService {
   /**
    * 调用 Python Agent 生成行程（阻塞，供后台任务使用）
    */
-  async generateWithAI(tripData: any) {
+  async generateWithAI(tripData: any, userId?: string) {
+    const profile = userId ? await this.userService.getUserProfile(userId).catch(() => null) : null
+    const preferences = profile?.preferences
+    const mergedTripData = preferences
+      ? {
+          ...tripData,
+          userId,
+          userPreferences: preferences,
+          budget: tripData.budget ?? preferences.budget,
+          travelStyle: tripData.travelStyle ?? preferences.travelStyle,
+          interests: tripData.interests || (preferences.interests ?? []).join("，"),
+        }
+      : tripData
+
     return proxyJsonToPythonAgent("/v1/trips/generate", {
       method: "POST",
-      body: JSON.stringify(tripData),
+      body: JSON.stringify(mergedTripData),
     })
   }
 
