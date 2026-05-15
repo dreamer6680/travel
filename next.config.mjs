@@ -72,9 +72,9 @@ const nextConfig = {
         config.plugins.push(new webpack.NormalModuleReplacementPlugin(/^solid-js\/web$/, polyfillPath))
       }
     }
-    // App Router 下大量 UI 走服务端编译：只在 client 注入会导致「No source info」
-    // isServer 判断：避免 solid-js/web polyfill 污染 SSR bundle，导致 React 为 null
-    if (dev && !isServer) {
+    // Locator loader 须在 SSR 与 client 同时注入，否则 data-locatorjs 不一致会触发 hydration 报错。
+    // solid-js polyfill 仍仅 client（见上方 !isServer），避免污染 SSR bundle。
+    if (dev) {
       unshiftLoader(
         {
           oneOf: [

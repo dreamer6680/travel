@@ -317,7 +317,7 @@ export default function TripDetailPage() {
               <CardContent>
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-lg font-medium mb-3">交通信息</h3>
+                    <h3 className="text-lg font-medium mb-3">交通可支配预算</h3>
                     {trip.practicalInfo.transportation.length === 0 ? (
                       <p className="text-muted-foreground text-sm">暂无交通信息</p>
                     ) : (

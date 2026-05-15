@@ -18,9 +18,24 @@ interface Attraction {
   location: string
   rating: number
   type: string
-  description: string
+  description?: unknown
   imageUrl?: string
   likes: number
+}
+
+/** Mongo 中 description 可能是对象/数组，统一转成可搜索、可展示的文本 */
+function toDisplayText(value: unknown): string {
+  if (value == null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (Array.isArray(value)) return value.map(toDisplayText).filter(Boolean).join(" ")
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    const preferred = obj.text ?? obj.content ?? obj.summary ?? obj.desc
+    if (preferred != null) return toDisplayText(preferred)
+    return Object.values(obj).map(toDisplayText).filter(Boolean).join(" ")
+  }
+  return ""
 }
 
 export default function RecommendationsPage() {
@@ -113,12 +128,12 @@ export default function RecommendationsPage() {
   const filterBySearch = (attractions: Attraction[]) => {
     if (!searchQuery.trim()) return attractions
     const query = searchQuery.toLowerCase()
-    return attractions.filter(
-      (attraction) =>
-        attraction.name.toLowerCase().includes(query) ||
-        attraction.location.toLowerCase().includes(query) ||
-        attraction.description.toLowerCase().includes(query),
-    )
+    return attractions.filter((attraction) => {
+      const name = toDisplayText(attraction.name).toLowerCase()
+      const location = toDisplayText(attraction.location).toLowerCase()
+      const description = toDisplayText(attraction.description).toLowerCase()
+      return name.includes(query) || location.includes(query) || description.includes(query)
+    })
   }
 
   // 应用所有筛选条件
@@ -209,6 +224,7 @@ export default function RecommendationsPage() {
                 <span className="ml-2">加载中...</span>
               </div>
             ) : filteredHidden.length > 0 ? (
+              
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredHidden.map((attraction) => (
                   <AttractionCard
@@ -308,7 +324,7 @@ function AttractionCard({
             <span className="text-sm font-medium">{attraction.rating}</span>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">{attraction.description}</p>
+        <p className="text-sm text-muted-foreground">{toDisplayText(attraction.description)}</p>
         <Button className="w-full mt-4" variant="outline">
           查看详情
         </Button>
