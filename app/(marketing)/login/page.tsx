@@ -9,16 +9,20 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useUserStore } from "@/lib/store/user-store"
 import { userAPI } from "@/lib/api"
 
 // useSearchParams 必须在 Suspense 边界内使用
+function getSafeRedirect(raw: string | null, fallback: string) {
+  if (!raw?.startsWith("/") || raw.startsWith("//")) return fallback
+  return raw
+}
+
 function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { login, setToken } = useUserStore()
 
@@ -34,8 +38,8 @@ function LoginForm() {
     try {
       await login(email, password)
       toast({ title: "登录成功", description: "欢迎回来！" })
-      const redirect = searchParams.get("redirect") || "/"
-      router.push(redirect)
+      const redirect = getSafeRedirect(searchParams.get("redirect"), "/")
+      window.location.assign(redirect)
     } catch (err: any) {
       const errorMessage = err.message || "登录失败，请检查邮箱和密码"
       setError(errorMessage)
@@ -65,9 +69,9 @@ function LoginForm() {
     try {
       const result = await userAPI.register({ name, email, password, confirmPassword })
       if (result.token && result.user) {
-        setToken(result.token)
+        await setToken(result.token)
         toast({ title: "注册成功", description: `欢迎加入，${result.user.name}！` })
-        router.push("/preferences")
+        window.location.assign("/preferences")
       } else {
         throw new Error(result.error || "注册失败")
       }

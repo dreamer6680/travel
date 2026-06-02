@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import { getToken, removeToken, setToken as saveToken } from "../api/fetch-api"
+import { getToken, removeToken, setToken as saveToken, syncAuthCookie } from "../api/fetch-api"
 import { userAPI } from "../api"
 
 export interface User {
@@ -34,7 +34,7 @@ interface UserStore {
   // Actions
   setUser: (user: User | null) => void
   setPreferences: (preferences: UserPreferences | null) => void
-  setToken: (token: string) => void
+  setToken: (token: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   checkAuth: () => Promise<void>
@@ -58,10 +58,11 @@ export const useUserStore = create<UserStore>()(
         })
       },
 
-      setToken: (token: string) => {
+      setToken: async (token: string) => {
         saveToken(token)
+        await syncAuthCookie(token)
         // 设置 token 后，尝试获取用户信息
-        get().checkAuth()
+        await get().checkAuth()
       },
 
       login: async (email: string, password: string) => {
@@ -71,6 +72,7 @@ export const useUserStore = create<UserStore>()(
           if (result.token && result.user) {
             // 存储 token（含 cookie 同步）
             saveToken(result.token)
+            await syncAuthCookie(result.token)
             // 设置用户信息
             set({
               user: result.user,
@@ -107,6 +109,8 @@ export const useUserStore = create<UserStore>()(
           })
           return
         }
+
+        await syncAuthCookie(token)
 
         // 如果已有用户信息，直接返回
         if (get().user) {

@@ -2,7 +2,7 @@
 
 import "@wangeditor-next/editor/dist/css/style.css"
 
-import { useEffect, useRef, useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -34,6 +34,7 @@ export default function CreateBlogPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
   const [editor, setEditor] = useState<any>(null)
+  const editorRef = useRef<any>(null)
   const [isClient, setIsClient] = useState(false)
   const [wangModule, setWangModule] = useState<WangEditorModule | null>(null)
 
@@ -57,8 +58,8 @@ export default function CreateBlogPage() {
   const maxUploadSizeBytes = maxUploadSizeMb * 1024 * 1024
   const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"])
 
-  const toolbarConfig = {}
-  const editorConfig: any = {
+  const toolbarConfig = useMemo(() => ({}), [])
+  const editorConfig: any = useMemo(() => ({
     placeholder: "请输入游记内容...",
     MENU_CONF: {
       uploadImage: {
@@ -89,7 +90,7 @@ export default function CreateBlogPage() {
         },
       },
     },
-  }
+  }), [toast, uploadBlogId])
 
   useEffect(() => { setIsClient(true) }, [])
 
@@ -102,13 +103,19 @@ export default function CreateBlogPage() {
     return () => { isMounted = false }
   }, [isClient])
 
+  const handleEditorCreated = useCallback((nextEditor: any) => {
+    editorRef.current = nextEditor
+    setEditor(nextEditor)
+  }, [])
+
   useEffect(() => {
     return () => {
-      if (editor == null) return
-      editor.destroy()
-      setEditor(null)
+      const currentEditor = editorRef.current
+      if (!currentEditor || currentEditor.isDestroyed) return
+      currentEditor.destroy()
+      editorRef.current = null
     }
-  }, [editor])
+  }, [])
 
   // 当正文图片列表变化时，若当前封面已不在正文图片中（且不是单独上传的），清空
   // 注意：单独上传的封面 URL 里含 /covers/，正文图片含 /blogs/，所以可以区分
@@ -238,8 +245,7 @@ export default function CreateBlogPage() {
                 <CardDescription>{isPreview ? "查看游记的最终效果" : "分享您的旅行故事"}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {isPreview ? (
-                  <div>
+                <div className={isPreview ? "block" : "hidden"}>
                     {coverImage && (
                       <div className="mb-6 rounded-lg overflow-hidden h-56 bg-muted">
                         <img src={coverImage} alt="封面" className="w-full h-full object-cover" />
@@ -263,8 +269,8 @@ export default function CreateBlogPage() {
                       }
                     </div>
                   </div>
-                ) : (
-                  <>
+
+                <div className={isPreview ? "hidden" : "block"}>
                     <div>
                       <Label htmlFor="title">游记标题 *</Label>
                       <Input
@@ -291,7 +297,7 @@ export default function CreateBlogPage() {
                         {isClient && wangModule ? (
                           <>
                             <wangModule.Toolbar
-                              editor={editor}
+                              editor={editor?.isDestroyed ? null : editor}
                               defaultConfig={toolbarConfig}
                               mode="default"
                               style={{ borderBottom: "1px solid #e5e7eb" }}
@@ -299,7 +305,7 @@ export default function CreateBlogPage() {
                             <wangModule.Editor
                               defaultConfig={editorConfig}
                               value={formData.content}
-                              onCreated={setEditor}
+                              onCreated={handleEditorCreated}
                               onChange={(e) => setFormData({ ...formData, content: e.getHtml() })}
                               mode="default"
                               style={{ height: "500px", overflowY: "auto" }}
@@ -313,8 +319,7 @@ export default function CreateBlogPage() {
                       </div>
                       <p className="text-sm text-muted-foreground mt-2">支持富文本编辑，可直接在正文插入图片</p>
                     </div>
-                  </>
-                )}
+                  </div>
               </CardContent>
             </Card>
           </div>

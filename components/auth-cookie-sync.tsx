@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { getToken } from "@/lib/api/fetch-api"
+import { getToken, syncAuthCookie } from "@/lib/api/fetch-api"
 
 /**
  * 若仅有 localStorage token、无 Cookie，middleware 会把受保护页重定向到登录。
@@ -12,13 +12,9 @@ export function AuthCookieSync() {
     const token = getToken()
     if (!token) return
 
-    fetch("/api/auth/sync-cookie", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    })
-      .then((res) => {
-        if (!res.ok) return
+    syncAuthCookie(token)
+      .then((ok) => {
+        if (!ok) return
         if (typeof window === "undefined") return
         if (window.location.pathname !== "/login") return
         const raw = new URLSearchParams(window.location.search).get("redirect")

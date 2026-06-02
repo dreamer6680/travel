@@ -1,11 +1,7 @@
 import fs from "fs"
 import path from "path"
-import { createRequire } from "module"
 import { fileURLToPath } from "url"
 import { unshiftLoader } from "next/dist/build/webpack/config/helpers.js"
-
-const require = createRequire(import.meta.url)
-const webpack = require("next/dist/compiled/webpack/webpack-lib.js")
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -30,32 +26,20 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // 生产构建输出独立目录，使 Docker 镜像体积从 ~1GB 降至 ~200MB
-  output: "standalone",
-  // LocatorJS（Next.js 15+）：与官方文档一致
-  // Turbopack：https://www.locatorjs.com/install/react
-  turbopack: {
-    rules: {
-      // 比官网多带 .ts/.js，覆盖 App Router 常见文件
-      "**/*.{tsx,ts,jsx,js}": {
-        loaders: [
-          {
-            loader: "@locator/webpack-loader",
-            options: { env: "development" },
-          },
-        ],
-      },
-    },
-  },
+  // Windows + pnpm 的 symlink 结构在 standalone traced copy 阶段容易触发 EPERM。
+  // Linux/Docker 构建仍保留 standalone 输出。
+  output: process.platform === "win32" ? undefined : "standalone",
   // Webpack：官方示例为 rules.push；Next 的 oneOf 需用 unshiftLoader 插到最前才稳定生效
   // https://www.locatorjs.com/install/react
   webpack: (config, { isServer, dev }) => {
     // 生产构建不打包 Locator（否则 @locator/runtime 与 solid-js 1.9+ 触发大量编译告警）
     if (!dev) {
       const stub = path.resolve(__dirname, "components/locator-runtime-loader.stub.tsx")
+      const runtimeStub = path.resolve(__dirname, "components/locator-runtime.stub.ts")
       config.resolve.alias = {
         ...config.resolve.alias,
         "@/components/locator-runtime-loader": stub,
+        "@locator/runtime": runtimeStub,
       }
     }
     // @locator/runtime 依赖 solid-js/web 的 setStyleProperty（solid-js 1.9+ 已移除）→ 用 polyfill 补全
@@ -69,7 +53,6 @@ const nextConfig = {
           "solid-js/web": polyfillPath,
           "solid-js/web$": polyfillPath,
         }
-        config.plugins.push(new webpack.NormalModuleReplacementPlugin(/^solid-js\/web$/, polyfillPath))
       }
     }
     // Locator loader 须在 SSR 与 client 同时注入，否则 data-locatorjs 不一致会触发 hydration 报错。
